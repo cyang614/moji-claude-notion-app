@@ -409,3 +409,17 @@ cd /home/rickyyang/workspace/moji-claude-notion-app
 ```
 
 這會先跑測試與 build，再 commit / push，並檢查 `.env` 不會被提交。
+
+如果 Ubuntu 沒有登入 GitHub，而 `git push` 失敗，可以先用你已驗證成功的 PAT remote 方式：
+
+```bash
+cd /home/rickyyang/workspace/moji-claude-notion-app
+git remote set-url origin https://<YOUR_GITHUB_TOKEN>@github.com/cyang614/moji-claude-notion-app.git
+git push -u origin main
+```
+
+`<YOUR_GITHUB_TOKEN>` 請替換成 GitHub Personal Access Token，不要把真實 token 寫進文件或 commit。push 成功後，建議改回乾淨 remote：
+
+```bash
+git remote set-url origin https://github.com/cyang614/moji-claude-notion-app.git
+```

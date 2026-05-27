@@ -103,7 +103,69 @@ gh repo create moji-claude-notion-app --private --source . --remote origin
 
 ## 4. GitHub 登入方式
 
-### 推薦：GitHub CLI
+### 本專案目前成功使用的方式：把 PAT 放進 origin URL
+
+這個專案在 Ubuntu / WSL 中已驗證可用的流程是：
+
+```bash
+cd /home/rickyyang/workspace/moji-claude-notion-app
+
+git remote set-url origin https://<YOUR_GITHUB_TOKEN>@github.com/cyang614/moji-claude-notion-app.git
+git push -u origin main
+```
+
+其中 `<YOUR_GITHUB_TOKEN>` 要換成 GitHub Personal Access Token，例如 classic token 通常以 `ghp_` 開頭。
+
+> 安全提醒：不要把真實 token 寫進 README、文件、程式碼或 commit。上面的 `<YOUR_GITHUB_TOKEN>` 只能在你自己的終端機中替換使用。
+
+如果 push 成功，建議把 remote 改回不含 token 的乾淨 URL，避免 token 長期留在 `.git/config`：
+
+```bash
+git remote set-url origin https://github.com/cyang614/moji-claude-notion-app.git
+```
+
+之後若需要再次 push，可以暫時再把 token 放回 remote URL，或改用下面的 credential helper / gh / SSH 方式。
+
+### Token 權限建議
+
+如果使用 classic token：
+
+```text
+repo
+```
+
+如果使用 fine-grained token：
+
+```text
+Repository access: cyang614/moji-claude-notion-app
+Repository permissions:
+- Contents: Read and write
+- Metadata: Read-only
+```
+
+### 推薦但需要多一步設定：credential helper
+
+如果不想每次把 token 放進 remote URL，可以讓 Git 儲存認證：
+
+```bash
+git config --global credential.helper store
+```
+
+接著用乾淨 remote：
+
+```bash
+git remote set-url origin https://github.com/cyang614/moji-claude-notion-app.git
+git push -u origin main
+```
+
+Git 詢問時輸入：
+
+```text
+Username: cyang614
+Password: 貼上 GitHub Personal Access Token，不是 GitHub 密碼
+```
+
+### 另一種推薦方式：GitHub CLI
 
 檢查是否有 `gh`：
 
@@ -129,21 +191,6 @@ Login with a web browser
 
 ```bash
 gh auth setup-git
-```
-
-### 沒有 gh CLI：用 Personal Access Token
-
-1. 到 GitHub：`Settings` → `Developer settings` → `Personal access tokens`。
-2. 建立 token。
-3. 至少需要 repo 權限。
-4. 第一次 `git push` 時：
-   - Username：你的 GitHub 帳號
-   - Password：貼上 token，不是 GitHub 密碼
-
-可設定儲存認證：
-
-```bash
-git config --global credential.helper store
 ```
 
 ---
