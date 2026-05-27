@@ -25,6 +25,7 @@ const toolInput = {
   synonyms: "引っ込む、下がる",
   antonyms: "進む",
   all_examples: "1. ちょっとどいてくれ。— 躲開點！",
+  kanji_readings: "退く（どく／しりぞく）、退かす（どかす）",
 };
 
 describe("analyzeMojiTextWithClaude", () => {
@@ -53,7 +54,9 @@ describe("analyzeMojiTextWithClaude", () => {
     const payload = anthropic.messages.create.mock.calls[0][0];
     expect(payload.tools[0].name).toBe("save_moji_vocab");
     expect(payload.tool_choice).toEqual({ type: "tool", name: "save_moji_vocab" });
+    expect(payload.tools[0].input_schema.required).toContain("kanji_readings");
     expect(data.vocab).toBe("退く");
+    expect(data.kanji_readings).toContain("退かす");
     expect(data.meaning).toContain("讓開");
     expect(data.example_zh).toBe("躲開點！");
   });

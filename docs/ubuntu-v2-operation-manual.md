@@ -115,29 +115,30 @@ PORT=3001
 
 | 欄位名稱 | 型別 | 說明 |
 |---|---|---|
-| `Vocab` | Title | 單字主標題 |
-| `Kana` | Text | 讀音 |
-| `POS` | Select | 詞性 |
-| `Meaning` | Text | 中文意思 |
-| `Grammar` | Text | 文法重點 |
-| `Example_JP` | Text | 日文例句 |
-| `Example_ZH` | Text | 中文翻譯 |
-| `Notes` | Text | 學習筆記 |
-| `JLPT_Level` | Select | JLPT 等級 |
-| `Difficulty` | Select | 1-5 難度 |
-| `Tags` | Multi-select | 標籤 |
-| `Collocations` | Text | 常用搭配 |
-| `Nuance` | Text | 語感情境 |
-| `Common_Mistakes` | Text | 常見錯誤 |
-| `Memory_Hook` | Text | 記憶法 |
-| `Review_Status` | Select | 複習狀態 |
-| `Next_Review` | Date | 下次複習日 |
-| `Raw_Moji_Text` | Text | 原始資料 |
-| `Conjugations` | Text | 活用變化 |
-| `Related_Words` | Text | 關聯詞、多音詞、話題詞 |
-| `Synonyms` | Text | 近義詞 |
-| `Antonyms` | Text | 反義詞 |
-| `All_Examples` | Text | 所有例句與繁中翻譯 |
+| `單字` | Title | 單字主標題 |
+| `讀音` | Text | 讀音 |
+| `詞性` | Select | 詞性 |
+| `中文意思` | Text | 中文意思 |
+| `文法重點` | Text | 文法重點 |
+| `核心例句（日文）` | Text | 日文例句 |
+| `例句翻譯` | Text | 中文翻譯 |
+| `學習筆記` | Text | 學習筆記 |
+| `JLPT 等級` | Select | JLPT 等級 |
+| `難度` | Select | 1-5 難度 |
+| `標籤` | Multi-select | 標籤 |
+| `常用搭配` | Text | 常用搭配 |
+| `語感` | Text | 語感情境 |
+| `常見錯誤` | Text | 常見錯誤 |
+| `記憶法` | Text | 記憶法 |
+| `複習狀態` | Select | 複習狀態 |
+| `下次複習日` | Date | 下次複習日 |
+| `原始 Moji 文字` | Text | 原始資料 |
+| `活用變化` | Text | 活用變化 |
+| `關聯詞整理` | Text | 關聯詞、多音詞、話題詞 |
+| `近義詞` | Text | 近義詞 |
+| `反義詞` | Text | 反義詞 |
+| `全部例句` | Text | 所有例句與繁中翻譯 |
+| `漢字假名對照` | Text | 漢字與五十音假名念法，例如 王位（おうい） |
 
 ### Notion Integration 權限
 
@@ -214,8 +215,9 @@ http://localhost:5173
    - JLPT / 難度 / 標籤
    - 搭配詞 / 語感 / 常見錯誤 / 記憶法
    - 活用變化 / 關聯詞 / 近義詞 / 反義詞 / 所有例句
+   - 漢字假名對照（漢字與五十音念法）
    - Notion 頁面連結
-6. 點「開啟 Notion 頁面」檢查資料是否正確寫入。
+6. 點「開啟 Notion 頁面」檢查欄位與頁面內文是否正確寫入。
 
 ---
 
@@ -312,16 +314,17 @@ NOTION_DATABASE_ID=...
 請檢查欄位名稱是否完全一致，例如：
 
 ```text
-JLPT_Level
-Common_Mistakes
-Memory_Hook
-Next_Review
-Raw_Moji_Text
-Conjugations
-Related_Words
-Synonyms
-Antonyms
-All_Examples
+JLPT 等級
+常見錯誤
+記憶法
+下次複習日
+原始 Moji 文字
+活用變化
+關聯詞整理
+近義詞
+反義詞
+全部例句
+漢字假名對照
 ```
 
 大小寫與底線都要相同。
@@ -330,11 +333,11 @@ All_Examples
 
 通常是欄位型別不一致。請確認：
 
-- `Vocab` 是 Title
-- `POS` / `JLPT_Level` / `Difficulty` / `Review_Status` 是 Select
-- `Tags` 是 Multi-select
-- `Next_Review` 是 Date
-- `Conjugations` / `Related_Words` / `Synonyms` / `Antonyms` / `All_Examples` 是 Text / Rich text
+- `單字` 是 Title
+- `詞性` / `JLPT 等級` / `難度` / `複習狀態` 是 Select
+- `標籤` 是 Multi-select
+- `下次複習日` 是 Date
+- `活用變化` / `關聯詞整理` / `近義詞` / `反義詞` / `全部例句` / `漢字假名對照` 是 Text / Rich text
 - 其他說明欄位是 Text / Rich text
 
 ### 問題 7：CORS 錯誤

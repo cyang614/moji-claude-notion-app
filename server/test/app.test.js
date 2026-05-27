@@ -26,10 +26,11 @@ const claudeV3Response = {
   synonyms: "引っ込む、引き下がる、引き上げる、下がる、引き揚げる",
   antonyms: "進む",
   all_examples: "1. ちょっとどいてくれ。— 請讓開一下。\n2. 私は王位を退き、息子に託します。— 我將退位並交託給兒子。",
+  kanji_readings: "退く（どく／しりぞく）、退かす（どかす）、王位（おうい）、選挙戦（せんきょせん）",
 };
 
 describe("POST /api/moji-to-notion", () => {
-  it("sends Moji text to Claude and creates a Notion page with full Moji analysis fields", async () => {
+  it("sends Moji text to Claude and creates a Notion page with Chinese properties and page body content", async () => {
     const anthropic = {
       messages: {
         create: vi.fn().mockResolvedValue({
@@ -67,6 +68,8 @@ describe("POST /api/moji-to-notion", () => {
       .send({ mojiText: "退く②⓪\nどく\n让开；躲开；退让" })
       .expect(200);
 
+    const notionPayload = notion.pages.create.mock.calls[0][0];
+
     expect(res.body.ok).toBe(true);
     expect(res.body.data.vocab).toBe("退く");
     expect(res.body.data.meaning).toContain("讓開");
@@ -74,8 +77,10 @@ describe("POST /api/moji-to-notion", () => {
     expect(res.body.notionPageId).toBe("notion-page-id");
     expect(anthropic.messages.create).toHaveBeenCalledOnce();
     expect(notion.pages.create).toHaveBeenCalledOnce();
-    expect(notion.pages.create.mock.calls[0][0].properties.JLPT_Level.select.name).toBe("N3");
-    expect(notion.pages.create.mock.calls[0][0].properties.All_Examples.rich_text[0].text.content).toContain("退位");
+    expect(notionPayload.properties["JLPT 等級"].select.name).toBe("N3");
+    expect(notionPayload.properties["漢字假名對照"].rich_text[0].text.content).toContain("王位（おうい）");
+    expect(JSON.stringify(notionPayload.children)).toContain("Claude 整理內容");
+    expect(JSON.stringify(notionPayload.children)).toContain("選挙戦（せんきょせん）");
   });
 
   it("returns 400 when mojiText is missing", async () => {

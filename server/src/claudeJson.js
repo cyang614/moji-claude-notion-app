@@ -36,6 +36,7 @@ export const OPTIONAL_TEXT_VOCAB_FIELDS = [
   "synonyms",
   "antonyms",
   "all_examples",
+  "kanji_readings",
 ];
 
 export const V2_OPTIONAL_VOCAB_FIELDS = [

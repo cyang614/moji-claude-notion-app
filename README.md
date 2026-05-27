@@ -2,7 +2,7 @@
 
 這是一個 Node.js Express + React 專案：前端貼上 Moji 辭書完整單字頁面，後端使用官方 `@anthropic-ai/sdk` 呼叫 Claude，把資料整理成 V3 日文學習 JSON，再用 `@notionhq/client` 新增到 Notion Database。
 
-V3 特色：除了基礎單字資料，會自動補強 `JLPT_Level`、`Difficulty`、`Tags`、`Collocations`、`Nuance`、`Common_Mistakes`、`Memory_Hook`、`Review_Status`、`Next_Review`、`Raw_Moji_Text`、`Conjugations`、`Related_Words`、`Synonyms`、`Antonyms`、`All_Examples` 等欄位。Claude Prompt 也明確要求分析所有 Moji 資料，並將簡體中文轉成台灣繁體用語；後端另使用 `opencc-js` 做一次簡體到台灣繁體的轉換保險。
+V3 特色：除了基礎單字資料，會自動補強 JLPT、難度、標籤、常用搭配、語感、常見錯誤、記憶法、複習狀態、下次複習日、原始 Moji 文字、活用變化、關聯詞整理、近義詞、反義詞、全部例句、漢字假名對照等台灣繁體中文欄位。Claude Prompt 也明確要求分析所有 Moji 資料，並將簡體中文轉成台灣繁體用語；後端另使用 `opencc-js` 做一次簡體到台灣繁體的轉換保險。新增 Notion 頁面時，除了欄位 properties，也會把所有 Claude 整理內容寫進該資料列的頁面內文。
 
 ## 專案結構
 
@@ -28,29 +28,30 @@ moji-claude-notion-app/
 
 | 欄位名稱 | 型別 |
 |---|---|
-| Vocab | Title |
-| Kana | Text / Rich text |
-| POS | Select |
-| Meaning | Text / Rich text |
-| Grammar | Text / Rich text |
-| Example_JP | Text / Rich text |
-| Example_ZH | Text / Rich text |
-| Notes | Text / Rich text |
-| JLPT_Level | Select |
-| Difficulty | Select |
-| Tags | Multi-select |
-| Collocations | Text / Rich text |
-| Nuance | Text / Rich text |
-| Common_Mistakes | Text / Rich text |
-| Memory_Hook | Text / Rich text |
-| Review_Status | Select |
-| Next_Review | Date |
-| Raw_Moji_Text | Text / Rich text |
-| Conjugations | Text / Rich text |
-| Related_Words | Text / Rich text |
-| Synonyms | Text / Rich text |
-| Antonyms | Text / Rich text |
-| All_Examples | Text / Rich text |
+| 單字 | Title |
+| 讀音 | Text / Rich text |
+| 詞性 | Select |
+| 中文意思 | Text / Rich text |
+| 文法重點 | Text / Rich text |
+| 核心例句（日文） | Text / Rich text |
+| 例句翻譯 | Text / Rich text |
+| 學習筆記 | Text / Rich text |
+| JLPT 等級 | Select |
+| 難度 | Select |
+| 標籤 | Multi-select |
+| 常用搭配 | Text / Rich text |
+| 語感 | Text / Rich text |
+| 常見錯誤 | Text / Rich text |
+| 記憶法 | Text / Rich text |
+| 複習狀態 | Select |
+| 下次複習日 | Date |
+| 原始 Moji 文字 | Text / Rich text |
+| 活用變化 | Text / Rich text |
+| 關聯詞整理 | Text / Rich text |
+| 近義詞 | Text / Rich text |
+| 反義詞 | Text / Rich text |
+| 全部例句 | Text / Rich text |
+| 漢字假名對照 | Text / Rich text |
 
 如果你的欄位名稱不同，請修改：
 

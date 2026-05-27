@@ -13,7 +13,8 @@ describe("Claude prompt", () => {
     expect(CLAUDE_SYSTEM_PROMPT).toContain('"memory_hook"');
     expect(CLAUDE_SYSTEM_PROMPT).toContain('"all_examples"');
     expect(CLAUDE_SYSTEM_PROMPT).toContain('"conjugations"');
-    expect(CLAUDE_SYSTEM_PROMPT).toContain("所有例句");
+    expect(CLAUDE_SYSTEM_PROMPT).toContain('"kanji_readings"');
+    expect(CLAUDE_SYSTEM_PROMPT).toContain("漢字假名對照");
     expect(CLAUDE_SYSTEM_PROMPT).toContain("簡體中文");
     expect(CLAUDE_SYSTEM_PROMPT).toContain("台灣繁體");
     expect(CLAUDE_SYSTEM_PROMPT).toContain("台灣學習者");

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildNotionProperties } from "../src/notionMapper.js";
+import { buildNotionPageChildren, buildNotionProperties } from "../src/notionMapper.js";
 
 const v3Data = {
   vocab: "退く",
@@ -25,32 +25,34 @@ const v3Data = {
   synonyms: "引っ込む、引き下がる、引き上げる、下がる、引き揚げる",
   antonyms: "進む",
   all_examples: "1. ちょっとどいてくれ。— 請讓開一下。\n2. 私は王位を退き、息子に託します。— 我將退位並交託給兒子。\n3. 選挙戦から退き、残りの任期に集中する。— 退出選戰，專注於剩餘任期。",
+  kanji_readings: "退く（どく／しりぞく）、退かす（どかす）、王位（おうい）、選挙戦（せんきょせん）",
 };
 
 describe("Notion property mapper", () => {
-  it("maps V3 vocab JSON into the expected Notion Database property schema", () => {
+  it("maps V3 vocab JSON into Taiwan Traditional Chinese Notion Database property names", () => {
     const properties = buildNotionProperties(v3Data);
 
-    expect(properties.Vocab.title[0].text.content).toBe("退く");
-    expect(properties.Kana.rich_text[0].text.content).toBe("どく");
-    expect(properties.POS.select.name).toBe("自動詞・五段");
-    expect(properties.Example_ZH.rich_text[0].text.content).toContain("讓開");
-    expect(properties.JLPT_Level.select.name).toBe("N3");
-    expect(properties.Difficulty.select.name).toBe("3");
-    expect(properties.Tags.multi_select).toEqual([
+    expect(properties["單字"].title[0].text.content).toBe("退く");
+    expect(properties["讀音"].rich_text[0].text.content).toBe("どく");
+    expect(properties["詞性"].select.name).toBe("自動詞・五段");
+    expect(properties["例句翻譯"].rich_text[0].text.content).toContain("讓開");
+    expect(properties["JLPT 等級"].select.name).toBe("N3");
+    expect(properties["難度"].select.name).toBe("3");
+    expect(properties["標籤"].multi_select).toEqual([
       { name: "日常" },
       { name: "口語" },
       { name: "移動" },
       { name: "自動詞" },
       { name: "N3" },
     ]);
-    expect(properties.Conjugations.rich_text[0].text.content).toContain("退いて");
-    expect(properties.Related_Words.rich_text[0].text.content).toContain("退かす");
-    expect(properties.Synonyms.rich_text[0].text.content).toContain("引っ込む");
-    expect(properties.Antonyms.rich_text[0].text.content).toBe("進む");
-    expect(properties.All_Examples.rich_text[0].text.content).toContain("退位");
-    expect(properties.Review_Status.select.name).toBe("New");
-    expect(properties.Next_Review.date.start).toBe("2026-05-28");
+    expect(properties["活用變化"].rich_text[0].text.content).toContain("退いて");
+    expect(properties["關聯詞整理"].rich_text[0].text.content).toContain("退かす");
+    expect(properties["近義詞"].rich_text[0].text.content).toContain("引っ込む");
+    expect(properties["反義詞"].rich_text[0].text.content).toBe("進む");
+    expect(properties["全部例句"].rich_text[0].text.content).toContain("退位");
+    expect(properties["漢字假名對照"].rich_text[0].text.content).toContain("選挙戦（せんきょせん）");
+    expect(properties["複習狀態"].select.name).toBe("New");
+    expect(properties["下次複習日"].date.start).toBe("2026-05-28");
   });
 
   it("uses empty rich_text arrays for empty values and avoids invalid empty selects", () => {
@@ -78,14 +80,16 @@ describe("Notion property mapper", () => {
       synonyms: "",
       antonyms: "",
       all_examples: "",
+      kanji_readings: "",
     });
 
-    expect(properties.Kana.rich_text).toEqual([]);
-    expect(properties.POS.select).toBeNull();
-    expect(properties.JLPT_Level.select).toBeNull();
-    expect(properties.Tags.multi_select).toEqual([]);
-    expect(properties.Next_Review.date).toBeNull();
-    expect(properties.All_Examples.rich_text).toEqual([]);
+    expect(properties["讀音"].rich_text).toEqual([]);
+    expect(properties["詞性"].select).toBeNull();
+    expect(properties["JLPT 等級"].select).toBeNull();
+    expect(properties["標籤"].multi_select).toEqual([]);
+    expect(properties["下次複習日"].date).toBeNull();
+    expect(properties["全部例句"].rich_text).toEqual([]);
+    expect(properties["漢字假名對照"].rich_text).toEqual([]);
   });
 
   it("splits long rich_text values into Notion-safe chunks", () => {
@@ -94,7 +98,19 @@ describe("Notion property mapper", () => {
       all_examples: "例".repeat(2500),
     });
 
-    expect(properties.All_Examples.rich_text.length).toBeGreaterThan(1);
-    expect(properties.All_Examples.rich_text[0].text.content.length).toBeLessThanOrEqual(1900);
+    expect(properties["全部例句"].rich_text.length).toBeGreaterThan(1);
+    expect(properties["全部例句"].rich_text[0].text.content.length).toBeLessThanOrEqual(1900);
+  });
+
+  it("builds page body blocks containing all Claude content and kanji-kana readings", () => {
+    const children = buildNotionPageChildren(v3Data);
+    const serialized = JSON.stringify(children);
+
+    expect(children[0].type).toBe("heading_2");
+    expect(serialized).toContain("Claude 整理內容");
+    expect(serialized).toContain("漢字假名對照");
+    expect(serialized).toContain("退く（どく／しりぞく）");
+    expect(serialized).toContain("全部例句");
+    expect(serialized).toContain("我將退位並交託給兒子");
   });
 });

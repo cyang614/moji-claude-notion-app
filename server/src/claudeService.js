@@ -31,6 +31,7 @@ const SAVE_MOJI_VOCAB_TOOL = {
       "synonyms",
       "antonyms",
       "all_examples",
+      "kanji_readings",
     ],
     properties: {
       vocab: { type: "string", description: "日文漢字或假名" },
@@ -62,6 +63,7 @@ const SAVE_MOJI_VOCAB_TOOL = {
       synonyms: { type: "string", description: "近義詞" },
       antonyms: { type: "string", description: "反義詞" },
       all_examples: { type: "string", description: "所有有學習價值的例句與台灣繁體中文翻譯，使用編號文字" },
+      kanji_readings: { type: "string", description: "漢字與五十音假名念法對照，例如 退く（どく）、王位（おうい）、選挙戦（せんきょせん）" },
     },
   },
 };

@@ -1,30 +1,57 @@
-const DEFAULT_PROPERTY_NAMES = {
-  vocab: "Vocab",
-  kana: "Kana",
-  pos: "POS",
-  meaning: "Meaning",
-  grammar: "Grammar",
-  example_jp: "Example_JP",
-  example_zh: "Example_ZH",
-  notes: "Notes",
-  jlpt_level: "JLPT_Level",
-  difficulty: "Difficulty",
-  tags: "Tags",
-  collocations: "Collocations",
-  nuance: "Nuance",
-  common_mistakes: "Common_Mistakes",
-  memory_hook: "Memory_Hook",
-  review_status: "Review_Status",
-  next_review: "Next_Review",
-  raw_moji_text: "Raw_Moji_Text",
-  conjugations: "Conjugations",
-  related_words: "Related_Words",
-  synonyms: "Synonyms",
-  antonyms: "Antonyms",
-  all_examples: "All_Examples",
+export const DEFAULT_PROPERTY_NAMES = {
+  vocab: "單字",
+  kana: "讀音",
+  pos: "詞性",
+  meaning: "中文意思",
+  grammar: "文法重點",
+  example_jp: "核心例句（日文）",
+  example_zh: "例句翻譯",
+  notes: "學習筆記",
+  jlpt_level: "JLPT 等級",
+  difficulty: "難度",
+  tags: "標籤",
+  collocations: "常用搭配",
+  nuance: "語感",
+  common_mistakes: "常見錯誤",
+  memory_hook: "記憶法",
+  review_status: "複習狀態",
+  next_review: "下次複習日",
+  raw_moji_text: "原始 Moji 文字",
+  conjugations: "活用變化",
+  related_words: "關聯詞整理",
+  synonyms: "近義詞",
+  antonyms: "反義詞",
+  all_examples: "全部例句",
+  kanji_readings: "漢字假名對照",
 };
 
+const PAGE_SECTIONS = [
+  ["單字", "vocab"],
+  ["讀音", "kana"],
+  ["詞性", "pos"],
+  ["中文意思", "meaning"],
+  ["漢字假名對照", "kanji_readings"],
+  ["文法重點", "grammar"],
+  ["核心例句（日文）", "example_jp"],
+  ["例句翻譯", "example_zh"],
+  ["學習筆記", "notes"],
+  ["JLPT 等級", "jlpt_level"],
+  ["難度", "difficulty"],
+  ["標籤", "tags"],
+  ["常用搭配", "collocations"],
+  ["語感", "nuance"],
+  ["常見錯誤", "common_mistakes"],
+  ["記憶法", "memory_hook"],
+  ["活用變化", "conjugations"],
+  ["關聯詞整理", "related_words"],
+  ["近義詞", "synonyms"],
+  ["反義詞", "antonyms"],
+  ["全部例句", "all_examples"],
+  ["原始 Moji 文字", "raw_moji_text"],
+];
+
 function textContent(value, fallback = "") {
+  if (Array.isArray(value)) return value.map((item) => String(item ?? "").trim()).filter(Boolean).join("、");
   return String(value ?? fallback).trim();
 }
 
@@ -62,6 +89,38 @@ export function toRichText(value) {
   return chunks;
 }
 
+function heading(level, content) {
+  const type = `heading_${level}`;
+  return {
+    object: "block",
+    type,
+    [type]: { rich_text: toRichText(content) },
+  };
+}
+
+function paragraph(content) {
+  return {
+    object: "block",
+    type: "paragraph",
+    paragraph: { rich_text: toRichText(content) },
+  };
+}
+
+function divider() {
+  return { object: "block", type: "divider", divider: {} };
+}
+
+function sectionBlocks(label, value) {
+  const content = textContent(value);
+  if (!content) return [];
+
+  const blocks = [heading(3, label)];
+  for (let i = 0; i < content.length; i += 1900) {
+    blocks.push(paragraph(content.slice(i, i + 1900)));
+  }
+  return blocks;
+}
+
 export function buildNotionProperties(data, propertyNames = DEFAULT_PROPERTY_NAMES) {
   return {
     [propertyNames.vocab]: { title: toTitle(data.vocab) },
@@ -87,5 +146,20 @@ export function buildNotionProperties(data, propertyNames = DEFAULT_PROPERTY_NAM
     [propertyNames.synonyms]: { rich_text: toRichText(data.synonyms) },
     [propertyNames.antonyms]: { rich_text: toRichText(data.antonyms) },
     [propertyNames.all_examples]: { rich_text: toRichText(data.all_examples) },
+    [propertyNames.kanji_readings]: { rich_text: toRichText(data.kanji_readings) },
   };
+}
+
+export function buildNotionPageChildren(data) {
+  const children = [
+    heading(2, "Claude 整理內容"),
+    paragraph(`單字：${textContent(data.vocab, "—")}｜讀音：${textContent(data.kana, "—")}｜詞性：${textContent(data.pos, "—")}`),
+    divider(),
+  ];
+
+  for (const [label, key] of PAGE_SECTIONS) {
+    children.push(...sectionBlocks(label, data[key]));
+  }
+
+  return children.slice(0, 100);
 }

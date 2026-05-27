@@ -1,7 +1,7 @@
 import express from "express";
 import cors from "cors";
 import { analyzeMojiTextWithClaude } from "./claudeService.js";
-import { buildNotionProperties } from "./notionMapper.js";
+import { buildNotionPageChildren, buildNotionProperties } from "./notionMapper.js";
 
 export function createApp({ anthropic, notion, config }) {
   const app = express();
@@ -49,6 +49,7 @@ export function createApp({ anthropic, notion, config }) {
       const notionPage = await notion.pages.create({
         parent: { database_id: config.notionDatabaseId },
         properties: buildNotionProperties(structuredData),
+        children: buildNotionPageChildren(structuredData),
       });
 
       return res.json({

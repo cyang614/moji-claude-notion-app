@@ -36,6 +36,7 @@ const basicFields = [
 ];
 
 const enhancedFields = [
+  ["漢字假名對照", "kanji_readings"],
   ["活用變化", "conjugations"],
   ["常用搭配", "collocations"],
   ["語感與情境", "nuance"],
