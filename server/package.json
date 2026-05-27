@@ -1,0 +1,23 @@
+{
+  "name": "moji-claude-notion-server",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch src/index.js",
+    "start": "node src/index.js",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "latest",
+    "@notionhq/client": "latest",
+    "cors": "latest",
+    "dotenv": "latest",
+    "express": "latest",
+    "opencc-js": "^1.3.1"
+  },
+  "devDependencies": {
+    "supertest": "latest",
+    "vitest": "latest"
+  }
+}
