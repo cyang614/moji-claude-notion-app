@@ -40,7 +40,39 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+const dashboardPayload = {
+  ok: true,
+  total: 63,
+  jlpt: { N5: 12, N4: 8, N3: 25, N2: 10, N1: 3, Unknown: 5 },
+  difficulty: { "1": 5, "2": 12, "3": 18, "4": 8, "5": 3 },
+  dueToday: [
+    { vocab: "退く", kana: "どく", jlpt_level: "N3", next_review: "2026-06-01", notionUrl: "https://notion.so/doku" },
+  ],
+  recentlyAdded: [
+    { vocab: "猫", kana: "ねこ", jlpt_level: "N5", difficulty: "1", notionUrl: "https://notion.so/neko" },
+  ],
+};
+
 describe("App", () => {
+  it("loads and renders the learning dashboard when switching to the dashboard tab", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      json: async () => dashboardPayload,
+    });
+
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "儀表板" }));
+
+    expect(await screen.findByText("學習數據儀表板")).toBeInTheDocument();
+    expect(globalThis.fetch).toHaveBeenCalledWith("http://localhost:3001/api/dashboard-stats");
+    expect(screen.getByText("總單字數")).toBeInTheDocument();
+    expect(screen.getByText("63")).toBeInTheDocument();
+    expect(screen.getByText("今日待複習數量")).toBeInTheDocument();
+    expect(screen.getByText("退く")).toBeInTheDocument();
+    expect(screen.getByText("最近新增單字")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "開啟 Notion" })).toHaveAttribute("href", "https://notion.so/doku");
+  });
+
   it("clears the textarea after a successful save and keeps the saved result visible", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue({
       ok: true,

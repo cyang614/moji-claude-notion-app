@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import Dashboard from "./Dashboard.jsx";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:3001";
 
@@ -95,6 +96,7 @@ function TagList({ tags = [] }) {
 
 export default function App() {
   const [mojiText, setMojiText] = useState(sampleText);
+  const [activeTab, setActiveTab] = useState("analyzer");
   const [result, setResult] = useState(null);
   const [error, setError] = useState("");
   const [duplicateWarning, setDuplicateWarning] = useState(null);
@@ -142,7 +144,25 @@ export default function App() {
         <div className="status-pill">Claude API + Notion API + 台灣繁中化</div>
       </section>
 
-      <section className="workspace-grid">
+      <nav className="tab-nav" aria-label="主要功能切換">
+        <button
+          type="button"
+          className={activeTab === "analyzer" ? "tab-button active" : "tab-button"}
+          onClick={() => setActiveTab("analyzer")}
+        >
+          分析器
+        </button>
+        <button
+          type="button"
+          className={activeTab === "dashboard" ? "tab-button active" : "tab-button"}
+          onClick={() => setActiveTab("dashboard")}
+        >
+          儀表板
+        </button>
+      </nav>
+
+      {activeTab === "dashboard" ? <Dashboard /> : (
+        <section className="workspace-grid">
         <form className="panel editor-panel" onSubmit={handleSubmit}>
           <div className="panel-header">
             <div>
@@ -250,6 +270,7 @@ export default function App() {
           )}
         </section>
       </section>
+      )}
     </main>
   );
 }

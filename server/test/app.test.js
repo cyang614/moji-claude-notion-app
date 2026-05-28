@@ -2,6 +2,20 @@ import request from "supertest";
 import { describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/app.js";
 
+function notionPage({ vocab, kana = "", jlpt = "Unknown", difficulty = "3", nextReview = null, url = "https://notion.so/page" }) {
+  return {
+    id: `${vocab}-id`,
+    url,
+    properties: {
+      單字: { title: [{ plain_text: vocab, text: { content: vocab } }] },
+      讀音: { rich_text: kana ? [{ plain_text: kana, text: { content: kana } }] : [] },
+      "JLPT 等級": { select: jlpt ? { name: jlpt } : null },
+      難度: { select: difficulty ? { name: difficulty } : null },
+      下次複習日: { date: nextReview ? { start: nextReview } : null },
+    },
+  };
+}
+
 const claudeV3Response = {
   vocab: "退く",
   kana: "どく",
@@ -79,6 +93,111 @@ function createNotionV5Mock(queryResponse = { results: [] }) {
     },
   };
 }
+
+function createDashboardNotionMock() {
+  const pages = [
+    notionPage({ vocab: "猫", kana: "ねこ", jlpt: "N5", difficulty: "1", nextReview: "2026-05-27", url: "https://notion.so/neko" }),
+    notionPage({ vocab: "退く", kana: "どく", jlpt: "N3", difficulty: "3", nextReview: "2026-05-26", url: "https://notion.so/doku" }),
+    notionPage({ vocab: "概念", kana: "がいねん", jlpt: "N2", difficulty: "4", nextReview: "2026-06-01", url: "https://notion.so/gainen" }),
+  ];
+
+  function selectName(payload, property) {
+    return payload.filter?.select?.equals
+      ?? payload.filter?.and?.find((item) => item.property === property)?.select?.equals;
+  }
+
+  return {
+    databases: {
+      retrieve: vi.fn().mockResolvedValue({
+        id: "database-id",
+        object: "database",
+        data_sources: [{ id: "data-source-id", name: "學習筆記" }],
+      }),
+    },
+    dataSources: {
+      query: vi.fn().mockImplementation(async (payload) => {
+        const jlpt = payload.filter?.property === "JLPT 等級" ? payload.filter.select.equals : null;
+        const difficulty = payload.filter?.property === "難度" ? payload.filter.select.equals : null;
+        const status = selectName(payload, "複習狀態");
+        const isDue = payload.filter?.and?.some((item) => item.property === "下次複習日");
+
+        if (jlpt) return { results: pages.filter((page) => page.properties["JLPT 等級"].select?.name === jlpt) };
+        if (difficulty) return { results: pages.filter((page) => page.properties["難度"].select?.name === difficulty) };
+        if (status === "New" && isDue) return { results: pages.slice(0, 2) };
+        if (payload.sorts) return { results: pages.slice().reverse() };
+        return { results: pages };
+      }),
+    },
+    pages: { create: vi.fn() },
+  };
+}
+
+describe("GET /api/dashboard-stats", () => {
+  it("returns dashboard stats aggregated from Notion vocabulary properties", async () => {
+    const notion = createDashboardNotionMock();
+    const app = createApp({
+      anthropic: null,
+      notion,
+      config: {
+        notionDatabaseId: "database-id",
+        claudeModel: "claude-test-model",
+        allowedOrigin: "http://localhost:5173",
+      },
+    });
+
+    const res = await request(app).get("/api/dashboard-stats").expect(200);
+
+    expect(res.body).toMatchObject({
+      ok: true,
+      total: 3,
+      jlpt: { N5: 1, N4: 0, N3: 1, N2: 1, N1: 0, Unknown: 0 },
+      difficulty: { "1": 1, "2": 0, "3": 1, "4": 1, "5": 0 },
+    });
+    expect(res.body.dueToday).toEqual([
+      { vocab: "猫", kana: "ねこ", jlpt_level: "N5", next_review: "2026-05-27", notionUrl: "https://notion.so/neko" },
+      { vocab: "退く", kana: "どく", jlpt_level: "N3", next_review: "2026-05-26", notionUrl: "https://notion.so/doku" },
+    ]);
+    expect(res.body.recentlyAdded[0]).toEqual({
+      vocab: "概念",
+      kana: "がいねん",
+      jlpt_level: "N2",
+      difficulty: "4",
+      notionUrl: "https://notion.so/gainen",
+    });
+    expect(notion.databases.retrieve).toHaveBeenCalledWith({ database_id: "database-id" });
+    expect(notion.dataSources.query).toHaveBeenCalledWith(expect.objectContaining({
+      data_source_id: "data-source-id",
+      filter: { property: "JLPT 等級", select: { equals: "N5" } },
+      page_size: 100,
+    }));
+    expect(notion.dataSources.query).toHaveBeenCalledWith(expect.objectContaining({
+      data_source_id: "data-source-id",
+      page_size: 20,
+      filter: expect.objectContaining({ and: expect.any(Array) }),
+    }));
+  });
+
+  it("returns partial dashboard stats when one Notion query fails", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const notion = createDashboardNotionMock();
+    notion.dataSources.query.mockImplementationOnce(async () => {
+      throw new Error("Notion temporary failure");
+    });
+    const app = createApp({
+      anthropic: null,
+      notion,
+      config: { notionDatabaseId: "database-id", claudeModel: "claude-test-model" },
+    });
+
+    const res = await request(app).get("/api/dashboard-stats").expect(200);
+
+    expect(res.body.ok).toBe(true);
+    expect(res.body.jlpt.N5).toBe(0);
+    expect(res.body.dueToday).toEqual(expect.any(Array));
+    expect(warnSpy).toHaveBeenCalledWith("Dashboard Notion query failed:", "Notion temporary failure");
+  });
+});
+
 
 describe("POST /api/moji-to-notion", () => {
   it("sends Moji text to Claude, checks duplicates, and creates a Notion page with Chinese properties and page body content", async () => {

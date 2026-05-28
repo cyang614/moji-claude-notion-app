@@ -127,8 +127,29 @@ http://localhost:5173
 
 ```text
 POST http://localhost:3001/api/moji-to-notion
+GET  http://localhost:3001/api/dashboard-stats
 GET  http://localhost:3001/api/health
 ```
+
+## 學習數據儀表板
+
+前端上方有兩個 tab：
+
+- `分析器`：貼上 Moji 辭書內容並寫入 Notion。
+- `儀表板`：呼叫後端 `GET /api/dashboard-stats`，從 Notion Database 讀取統計資料並顯示學習進度。
+
+儀表板包含：
+
+1. 總單字數、今日待複習數量、最高比例 JLPT 等級、平均難度。
+2. JLPT 等級分佈 CSS 長條圖。
+3. 難度 1～5 分佈 CSS 長條圖。
+4. 今日待複習清單，提供 Notion 連結。
+5. 最近新增 10 筆單字表格。
+
+所有 Notion 查詢都在後端完成。若使用 `@notionhq/client` v5+，後端會自動由 `NOTION_DATABASE_ID` 解析 `data_source_id` 後查詢。
+
+注意：Notion 的 Select 欄位若尚未建立某些選項（例如 `N4`、`N1`、`Unknown` 或難度 `4`、`5`），對該選項的 filter query 可能會回 validation warning；後端會把該項視為 0，其他統計仍會正常顯示。若想避免 warning，可先在 Notion Database 的 `JLPT 等級` 與 `難度` 欄位補齊所有選項。
+
 
 ## 測試與建置
 
