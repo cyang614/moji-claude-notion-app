@@ -25,6 +25,9 @@ export const DEFAULT_PROPERTY_NAMES = {
   kanji_readings: "漢字假名對照",
 };
 
+const TRUNCATED_PROPERTY_NOTICE = "（內容過長，完整版見頁面內文）";
+const MAX_LONG_PROPERTY_LENGTH = 1900;
+
 const PAGE_SECTIONS = [
   ["單字", "vocab"],
   ["讀音", "kana"],
@@ -89,6 +92,18 @@ export function toRichText(value) {
   return chunks;
 }
 
+function toTruncatedPropertyRichText(value) {
+  const content = textContent(value);
+  if (!content) return [];
+
+  if (content.length <= MAX_LONG_PROPERTY_LENGTH) {
+    return toRichText(content);
+  }
+
+  const prefixLength = MAX_LONG_PROPERTY_LENGTH - TRUNCATED_PROPERTY_NOTICE.length;
+  return toRichText(`${content.slice(0, prefixLength)}${TRUNCATED_PROPERTY_NOTICE}`);
+}
+
 function heading(level, content) {
   const type = `heading_${level}`;
   return {
@@ -140,12 +155,12 @@ export function buildNotionProperties(data, propertyNames = DEFAULT_PROPERTY_NAM
     [propertyNames.memory_hook]: { rich_text: toRichText(data.memory_hook) },
     [propertyNames.review_status]: { select: selectOption(data.review_status) },
     [propertyNames.next_review]: { date: dateValue(data.next_review) },
-    [propertyNames.raw_moji_text]: { rich_text: toRichText(data.raw_moji_text) },
+    [propertyNames.raw_moji_text]: { rich_text: toTruncatedPropertyRichText(data.raw_moji_text) },
     [propertyNames.conjugations]: { rich_text: toRichText(data.conjugations) },
     [propertyNames.related_words]: { rich_text: toRichText(data.related_words) },
     [propertyNames.synonyms]: { rich_text: toRichText(data.synonyms) },
     [propertyNames.antonyms]: { rich_text: toRichText(data.antonyms) },
-    [propertyNames.all_examples]: { rich_text: toRichText(data.all_examples) },
+    [propertyNames.all_examples]: { rich_text: toTruncatedPropertyRichText(data.all_examples) },
     [propertyNames.kanji_readings]: { rich_text: toRichText(data.kanji_readings) },
   };
 }

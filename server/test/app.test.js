@@ -19,7 +19,7 @@ const claudeV3Response = {
   common_mistakes: "不要把簡體的「让开」保留原樣，台灣繁體應寫「讓開」。",
   memory_hook: "看到「どいて」可聯想到請人挪開、讓位。",
   review_status: "New",
-  next_review: "2026-05-28",
+  next_review: "2026-06-01",
   raw_moji_text: "退く②⓪\nどく\ndoku\n自動·五段\n簡明釋義\n让开；躲开；退让",
   conjugations: "ます形：退きます；て形：退いて",
   related_words: "他動詞：退かす（どかす）；多音詞：退く（しりぞく・のく・ひく・そく・しぞく）",
@@ -29,29 +29,39 @@ const claudeV3Response = {
   kanji_readings: "退く（どく／しりぞく）、退かす（どかす）、王位（おうい）、選挙戦（せんきょせん）",
 };
 
-describe("POST /api/moji-to-notion", () => {
-  it("sends Moji text to Claude and creates a Notion page with Chinese properties and page body content", async () => {
-    const anthropic = {
-      messages: {
-        create: vi.fn().mockResolvedValue({
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify(claudeV3Response),
-            },
-          ],
-        }),
-      },
-    };
+function createAnthropicMock(response = claudeV3Response) {
+  return {
+    messages: {
+      create: vi.fn().mockResolvedValue({
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(response),
+          },
+        ],
+      }),
+    },
+  };
+}
 
-    const notion = {
-      pages: {
-        create: vi.fn().mockResolvedValue({
-          id: "notion-page-id",
-          url: "https://notion.so/notion-page-id",
-        }),
-      },
-    };
+function createNotionMock(queryResponse = { results: [] }) {
+  return {
+    databases: {
+      query: vi.fn().mockResolvedValue(queryResponse),
+    },
+    pages: {
+      create: vi.fn().mockResolvedValue({
+        id: "notion-page-id",
+        url: "https://notion.so/notion-page-id",
+      }),
+    },
+  };
+}
+
+describe("POST /api/moji-to-notion", () => {
+  it("sends Moji text to Claude, checks duplicates, and creates a Notion page with Chinese properties and page body content", async () => {
+    const anthropic = createAnthropicMock();
+    const notion = createNotionMock();
 
     const app = createApp({
       anthropic,
@@ -76,6 +86,11 @@ describe("POST /api/moji-to-notion", () => {
     expect(res.body.data.all_examples).toContain("退位");
     expect(res.body.notionPageId).toBe("notion-page-id");
     expect(anthropic.messages.create).toHaveBeenCalledOnce();
+    expect(notion.databases.query).toHaveBeenCalledWith({
+      database_id: "database-id",
+      filter: { property: "單字", title: { equals: "退く" } },
+      page_size: 1,
+    });
     expect(notion.pages.create).toHaveBeenCalledOnce();
     expect(notionPayload.properties["JLPT 等級"].select.name).toBe("N3");
     expect(notionPayload.properties["漢字假名對照"].rich_text[0].text.content).toContain("王位（おうい）");
@@ -83,10 +98,51 @@ describe("POST /api/moji-to-notion", () => {
     expect(JSON.stringify(notionPayload.children)).toContain("選挙戦（せんきょせん）");
   });
 
+  it("returns 409 and skips page creation when the Claude-parsed vocab already exists in Notion", async () => {
+    const anthropic = createAnthropicMock();
+    const notion = createNotionMock({
+      results: [
+        {
+          id: "existing-page-id",
+          url: "https://notion.so/existing-page-id",
+        },
+      ],
+    });
+
+    const app = createApp({
+      anthropic,
+      notion,
+      config: {
+        notionDatabaseId: "database-id",
+        claudeModel: "claude-test-model",
+        allowedOrigin: "http://localhost:5173",
+      },
+    });
+
+    const res = await request(app)
+      .post("/api/moji-to-notion")
+      .send({ mojiText: "退く②⓪\nどく\n让开；躲开；退让" })
+      .expect(409);
+
+    expect(res.body).toEqual({
+      ok: false,
+      duplicate: true,
+      message: "此單字已存在於 Notion",
+      notionUrl: "https://notion.so/existing-page-id",
+    });
+    expect(anthropic.messages.create).toHaveBeenCalledOnce();
+    expect(notion.databases.query).toHaveBeenCalledWith({
+      database_id: "database-id",
+      filter: { property: "單字", title: { equals: "退く" } },
+      page_size: 1,
+    });
+    expect(notion.pages.create).not.toHaveBeenCalled();
+  });
+
   it("returns 400 when mojiText is missing", async () => {
     const app = createApp({
       anthropic: { messages: { create: vi.fn() } },
-      notion: { pages: { create: vi.fn() } },
+      notion: createNotionMock(),
       config: { notionDatabaseId: "database-id", claudeModel: "claude-test-model" },
     });
 

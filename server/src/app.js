@@ -46,6 +46,22 @@ export function createApp({ anthropic, notion, config }) {
         model: config.claudeModel,
       });
 
+      const duplicateResult = await notion.databases.query({
+        database_id: config.notionDatabaseId,
+        filter: { property: "單字", title: { equals: structuredData.vocab } },
+        page_size: 1,
+      });
+
+      const existingPage = duplicateResult.results?.[0];
+      if (existingPage) {
+        return res.status(409).json({
+          ok: false,
+          duplicate: true,
+          message: "此單字已存在於 Notion",
+          notionUrl: existingPage.url || "",
+        });
+      }
+
       const notionPage = await notion.pages.create({
         parent: { database_id: config.notionDatabaseId },
         properties: buildNotionProperties(structuredData),

@@ -61,6 +61,10 @@ async function submitMojiText(mojiText) {
 
   const result = await response.json().catch(() => null);
 
+  if (response.status === 409 && result?.duplicate) {
+    return result;
+  }
+
   if (!response.ok || !result?.ok) {
     throw new Error(result?.message || `API 錯誤：HTTP ${response.status}`);
   }
@@ -93,6 +97,8 @@ export default function App() {
   const [mojiText, setMojiText] = useState(sampleText);
   const [result, setResult] = useState(null);
   const [error, setError] = useState("");
+  const [duplicateWarning, setDuplicateWarning] = useState(null);
+  const [showInputClearedNotice, setShowInputClearedNotice] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const canSubmit = useMemo(() => mojiText.trim().length > 0 && !isSubmitting, [mojiText, isSubmitting]);
@@ -101,12 +107,21 @@ export default function App() {
   async function handleSubmit(event) {
     event.preventDefault();
     setError("");
-    setResult(null);
+    setDuplicateWarning(null);
+    setShowInputClearedNotice(false);
     setIsSubmitting(true);
 
     try {
       const data = await submitMojiText(mojiText.trim());
+
+      if (data.duplicate) {
+        setDuplicateWarning(data);
+        return;
+      }
+
       setResult(data);
+      setMojiText("");
+      setShowInputClearedNotice(true);
     } catch (err) {
       setError(err.message || "發生未知錯誤");
     } finally {
@@ -148,12 +163,25 @@ export default function App() {
           </button>
 
           {error && <div className="alert error">{error}</div>}
+          {duplicateWarning && (
+            <div className="alert warning">
+              <div>{duplicateWarning.message}</div>
+              {duplicateWarning.notionUrl && (
+                <a href={duplicateWarning.notionUrl} target="_blank" rel="noreferrer">
+                  開啟既有 Notion 頁面
+                </a>
+              )}
+            </div>
+          )}
         </form>
 
         <section className="panel result-panel">
           <div className="panel-header">
             <div>
-              <h2>Claude 解析結果</h2>
+              <h2>
+                Claude 解析結果
+                {result?.ok && <span className="success-badge">已儲存到 Notion ✓</span>}
+              </h2>
               <p>成功後會顯示完整 Moji 分析欄位與 Notion 頁面連結。</p>
             </div>
           </div>
@@ -167,6 +195,7 @@ export default function App() {
 
           {vocabData && (
             <div className="result-content">
+              {showInputClearedNotice && <div className="info-tip">輸入框已清空，可貼入下一個單字</div>}
               <div className="summary-strip">
                 <div>
                   <span>JLPT</span>

@@ -92,14 +92,29 @@ describe("Notion property mapper", () => {
     expect(properties["漢字假名對照"].rich_text).toEqual([]);
   });
 
-  it("splits long rich_text values into Notion-safe chunks", () => {
+  it("truncates all_examples and raw_moji_text database properties while keeping full content in page body", () => {
+    const longExamples = "例".repeat(2500);
+    const longRawText = "原".repeat(2600);
     const properties = buildNotionProperties({
       ...v3Data,
-      all_examples: "例".repeat(2500),
+      all_examples: longExamples,
+      raw_moji_text: longRawText,
     });
+    const children = buildNotionPageChildren({
+      ...v3Data,
+      all_examples: longExamples,
+      raw_moji_text: longRawText,
+    });
+    const serializedChildren = JSON.stringify(children);
 
-    expect(properties["全部例句"].rich_text.length).toBeGreaterThan(1);
-    expect(properties["全部例句"].rich_text[0].text.content.length).toBeLessThanOrEqual(1900);
+    expect(properties["全部例句"].rich_text).toHaveLength(1);
+    expect(properties["全部例句"].rich_text[0].text.content).toHaveLength(1900);
+    expect(properties["全部例句"].rich_text[0].text.content).toContain("（內容過長，完整版見頁面內文）");
+    expect(properties["原始 Moji 文字"].rich_text).toHaveLength(1);
+    expect(properties["原始 Moji 文字"].rich_text[0].text.content).toHaveLength(1900);
+    expect(properties["原始 Moji 文字"].rich_text[0].text.content).toContain("（內容過長，完整版見頁面內文）");
+    expect(serializedChildren).toContain("例".repeat(1900));
+    expect(serializedChildren).toContain("原".repeat(1900));
   });
 
   it("builds page body blocks containing all Claude content and kanji-kana readings", () => {

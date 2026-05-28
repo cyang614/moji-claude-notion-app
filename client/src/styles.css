@@ -50,6 +50,10 @@ textarea:focus { border-color: #6b63ff; box-shadow: 0 0 0 4px rgba(107,99,255,.1
 .ghost-button { padding: 10px 14px; color: #405078; background: #eef2fb; }
 .alert { margin-top: 14px; padding: 14px 16px; border-radius: 16px; line-height: 1.6; }
 .error { color: #8b1d2c; background: #ffecef; border: 1px solid #ffc9d1; }
+.warning { color: #7a4b00; background: #fff8df; border: 1px solid #f5d67a; }
+.warning a { display: inline-flex; margin-top: 8px; color: #5d3b00; font-weight: 900; }
+.success-badge { display: inline-flex; margin-left: 10px; vertical-align: middle; padding: 5px 9px; border-radius: 999px; color: #14633a; background: #e7f8ee; border: 1px solid #bce8cd; font-size: 12px; font-weight: 900; }
+.info-tip { padding: 12px 14px; border-radius: 16px; color: #315078; background: #eef6ff; border: 1px solid #d9eaff; font-weight: 700; }
 .empty-state { min-height: 520px; display: grid; place-content: center; text-align: center; color: #6a7489; border: 1px dashed #cbd4e6; border-radius: 22px; background: #fbfcff; }
 .empty-icon { width: 70px; height: 70px; display: grid; place-items: center; margin: 0 auto 14px; border-radius: 22px; color: white; background: linear-gradient(135deg, #3658d8, #bb5bd6); font-size: 30px; font-weight: 900; }
 
