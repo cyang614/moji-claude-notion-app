@@ -1,6 +1,6 @@
 import request from "supertest";
 import { describe, expect, it, vi } from "vitest";
-import { createApp } from "../src/app.js";
+import { calcNextReview, createApp } from "../src/app.js";
 
 function notionPage({ vocab, kana = "", jlpt = "Unknown", difficulty = "3", nextReview = null, url = "https://notion.so/page" }) {
   return {
@@ -68,6 +68,7 @@ function createNotionMock(queryResponse = { results: [] }) {
         id: "notion-page-id",
         url: "https://notion.so/notion-page-id",
       }),
+      update: vi.fn().mockResolvedValue({ id: "updated-page-id" }),
     },
   };
 }
@@ -90,6 +91,7 @@ function createNotionV5Mock(queryResponse = { results: [] }) {
         id: "notion-page-id",
         url: "https://notion.so/notion-page-id",
       }),
+      update: vi.fn().mockResolvedValue({ id: "updated-page-id" }),
     },
   };
 }
@@ -132,6 +134,61 @@ function createDashboardNotionMock() {
   };
 }
 
+describe("SRS review mode", () => {
+  it("calculates the next review date for remembered and forgotten results", () => {
+    expect(calcNextReview("remembered", 3, "2026-05-28")).toEqual({
+      result: "remembered",
+      newInterval: 8,
+      newStatus: "Reviewing",
+      nextReviewDate: "2026-06-05",
+    });
+
+    expect(calcNextReview("forgotten", undefined, "2026-05-28")).toEqual({
+      result: "forgotten",
+      newInterval: 3,
+      newStatus: "New",
+      nextReviewDate: "2026-05-31",
+    });
+
+    expect(calcNextReview("remembered", 60, "2026-05-28").newInterval).toBe(90);
+  });
+
+  it("updates Notion review status and next review date", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-28T00:00:00.000Z"));
+
+    const notion = createNotionMock();
+    const app = createApp({
+      anthropic: null,
+      notion,
+      config: { notionDatabaseId: "database-id", claudeModel: "claude-test-model" },
+    });
+
+    const res = await request(app)
+      .patch("/api/review")
+      .send({ notionPageId: "page-123", result: "remembered", currentInterval: 3 })
+      .expect(200);
+
+    expect(res.body).toEqual({
+      ok: true,
+      result: "remembered",
+      newInterval: 8,
+      newStatus: "Reviewing",
+      nextReviewDate: "2026-06-05",
+    });
+    expect(notion.pages.update).toHaveBeenCalledWith({
+      page_id: "page-123",
+      properties: {
+        "複習狀態": { select: { name: "Reviewing" } },
+        "下次複習日": { date: { start: "2026-06-05" } },
+      },
+    });
+
+    vi.useRealTimers();
+  });
+});
+
+
 describe("GET /api/dashboard-stats", () => {
   it("returns dashboard stats aggregated from Notion vocabulary properties", async () => {
     const notion = createDashboardNotionMock();
@@ -154,8 +211,32 @@ describe("GET /api/dashboard-stats", () => {
       difficulty: { "1": 1, "2": 0, "3": 1, "4": 1, "5": 0 },
     });
     expect(res.body.dueToday).toEqual([
-      { vocab: "猫", kana: "ねこ", jlpt_level: "N5", next_review: "2026-05-27", notionUrl: "https://notion.so/neko" },
-      { vocab: "退く", kana: "どく", jlpt_level: "N3", next_review: "2026-05-26", notionUrl: "https://notion.so/doku" },
+      {
+        vocab: "猫",
+        kana: "ねこ",
+        jlpt_level: "N5",
+        next_review: "2026-05-27",
+        notionPageId: "猫-id",
+        notionUrl: "https://notion.so/neko",
+        currentInterval: 3,
+        meaning: "",
+        example_jp: "",
+        example_zh: "",
+        notes: "",
+      },
+      {
+        vocab: "退く",
+        kana: "どく",
+        jlpt_level: "N3",
+        next_review: "2026-05-26",
+        notionPageId: "退く-id",
+        notionUrl: "https://notion.so/doku",
+        currentInterval: 5,
+        meaning: "",
+        example_jp: "",
+        example_zh: "",
+        notes: "",
+      },
     ]);
     expect(res.body.recentlyAdded[0]).toEqual({
       vocab: "概念",

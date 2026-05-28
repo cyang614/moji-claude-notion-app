@@ -23,6 +23,21 @@ async function fetchDashboardStats() {
   return result;
 }
 
+async function submitReviewResult({ notionPageId, result, currentInterval }) {
+  const response = await fetch(`${API_BASE_URL}/api/review`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ notionPageId, result, currentInterval }),
+  });
+  const payload = await response.json().catch(() => null);
+
+  if (!response.ok || !payload?.ok) {
+    throw new Error(payload?.error || payload?.message || `複習 API 錯誤：HTTP ${response.status}`);
+  }
+
+  return payload;
+}
+
 function getMaxEntry(record = {}) {
   return Object.entries(record).reduce(
     (best, entry) => (entry[1] > best[1] ? entry : best),
@@ -88,7 +103,7 @@ function BarDistribution({ title, data, order, labelFor = (key) => key, classPre
   );
 }
 
-function ReviewCard({ item }) {
+function ReviewCard({ item, onStartReview }) {
   return (
     <article className="review-card">
       <div>
@@ -97,8 +112,53 @@ function ReviewCard({ item }) {
       </div>
       <div className="review-actions">
         <span className="tag">{item.jlpt_level || "Unknown"}</span>
+        <button className="outline-button mini-button" type="button" onClick={() => onStartReview(item)}>開始複習</button>
         {item.notionUrl && <a className="mini-link" href={item.notionUrl} target="_blank" rel="noreferrer">開啟 Notion</a>}
       </div>
+    </article>
+  );
+}
+
+function ActiveReviewCard({ item, showAnswer, reviewLoading, reviewFeedback, reviewError, onClose, onShowAnswer, onSubmit }) {
+  if (!item) return null;
+
+  return (
+    <article className="active-review-card">
+      <div className="active-review-topline">
+        <span className="tag">{item.jlpt_level || "Unknown"}</span>
+        <button className="close-review-button" type="button" onClick={onClose} aria-label="關閉複習卡片">✕ 關閉</button>
+      </div>
+      <div className="active-review-main">
+        <div className="active-review-vocab">{item.vocab || "—"}</div>
+        <div className="active-review-kana">{item.kana || "—"}</div>
+      </div>
+
+      {!showAnswer ? (
+        <>
+          <div className="answer-hidden-box">答案隱藏中：？？？？</div>
+          <button className="primary-button show-answer-button" type="button" onClick={onShowAnswer}>顯示答案</button>
+        </>
+      ) : (
+        <div className="answer-panel">
+          <p>意思：{item.meaning || "—"}</p>
+          {item.example_jp && <p>例句：{item.example_jp}</p>}
+          {item.example_zh && <p>翻譯：{item.example_zh}</p>}
+          {item.notes && <p>筆記：{item.notes}</p>}
+          <div className="review-result-actions">
+            <button className="danger-button" type="button" disabled={reviewLoading} onClick={() => onSubmit("forgotten")}>忘了 ✗</button>
+            <button className="success-button" type="button" disabled={reviewLoading} onClick={() => onSubmit("remembered")}>記得 ✓</button>
+          </div>
+        </div>
+      )}
+
+      {reviewLoading && <div className="review-status-text">更新複習結果中...</div>}
+      {reviewFeedback?.result === "remembered" && (
+        <div className="review-feedback remembered">✓ 已記錄！下次複習：{reviewFeedback.newInterval} 天後（{reviewFeedback.nextReviewDate}）</div>
+      )}
+      {reviewFeedback?.result === "forgotten" && (
+        <div className="review-feedback forgotten">已重置，3 天後再複習</div>
+      )}
+      {reviewError && <div className="review-feedback error-text">{reviewError}</div>}
     </article>
   );
 }
@@ -107,6 +167,11 @@ export default function Dashboard() {
   const [stats, setStats] = useState(null);
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(true);
+  const [reviewingCard, setReviewingCard] = useState(null);
+  const [showAnswer, setShowAnswer] = useState(false);
+  const [reviewLoading, setReviewLoading] = useState(false);
+  const [reviewFeedback, setReviewFeedback] = useState(null);
+  const [reviewError, setReviewError] = useState("");
 
   async function loadStats() {
     setIsLoading(true);
@@ -114,10 +179,61 @@ export default function Dashboard() {
     try {
       const data = await fetchDashboardStats();
       setStats(data);
+      setReviewingCard(null);
+      setShowAnswer(false);
+      setReviewFeedback(null);
+      setReviewError("");
     } catch (err) {
       setError(err.message || "儀表板載入失敗");
     } finally {
       setIsLoading(false);
+    }
+  }
+
+  function startReview(item) {
+    setReviewingCard(item);
+    setShowAnswer(false);
+    setReviewLoading(false);
+    setReviewFeedback(null);
+    setReviewError("");
+  }
+
+  function closeReview() {
+    setReviewingCard(null);
+    setShowAnswer(false);
+    setReviewLoading(false);
+    setReviewFeedback(null);
+    setReviewError("");
+  }
+
+  async function handleReviewSubmit(result) {
+    if (!reviewingCard) return;
+
+    setReviewLoading(true);
+    setReviewFeedback(null);
+    setReviewError("");
+
+    try {
+      const feedback = await submitReviewResult({
+        notionPageId: reviewingCard.notionPageId,
+        result,
+        currentInterval: reviewingCard.currentInterval,
+      });
+      setReviewFeedback(feedback);
+      setStats((current) => ({
+        ...current,
+        dueToday: (current?.dueToday || []).filter((item) => item.notionPageId !== reviewingCard.notionPageId),
+      }));
+
+      window.setTimeout(() => {
+        setReviewingCard(null);
+        setShowAnswer(false);
+        setReviewFeedback(null);
+      }, 1500);
+    } catch (err) {
+      setReviewError(err.message || "更新失敗，請重試");
+    } finally {
+      setReviewLoading(false);
     }
   }
 
@@ -200,12 +316,28 @@ export default function Dashboard() {
             <p>下次複習日已到且狀態為 New 的單字，最多顯示 20 筆。</p>
           </div>
         </div>
+        <ActiveReviewCard
+          item={reviewingCard}
+          showAnswer={showAnswer}
+          reviewLoading={reviewLoading}
+          reviewFeedback={reviewFeedback}
+          reviewError={reviewError}
+          onClose={closeReview}
+          onShowAnswer={() => setShowAnswer(true)}
+          onSubmit={handleReviewSubmit}
+        />
         {stats?.dueToday?.length ? (
           <div className="review-list">
-            {stats.dueToday.map((item) => <ReviewCard item={item} key={`${item.vocab}-${item.notionUrl}`} />)}
+            {stats.dueToday.map((item) => (
+              <ReviewCard
+                item={item}
+                key={`${item.notionPageId || item.vocab}-${item.notionUrl}`}
+                onStartReview={startReview}
+              />
+            ))}
           </div>
         ) : (
-          <div className="empty-dashboard-state">🎉 今日單字都複習完了！</div>
+          <div className="empty-dashboard-state">🎉 今日所有單字複習完成！</div>
         )}
       </section>
 

@@ -46,7 +46,18 @@ const dashboardPayload = {
   jlpt: { N5: 12, N4: 8, N3: 25, N2: 10, N1: 3, Unknown: 5 },
   difficulty: { "1": 5, "2": 12, "3": 18, "4": 8, "5": 3 },
   dueToday: [
-    { vocab: "退く", kana: "どく", jlpt_level: "N3", next_review: "2026-06-01", notionUrl: "https://notion.so/doku" },
+    {
+      vocab: "退く",
+      kana: "どく",
+      jlpt_level: "N3",
+      meaning: "讓開；退讓",
+      example_jp: "ちょっとどいてくれ。",
+      example_zh: "請讓開一下。",
+      next_review: "2026-06-01",
+      notionPageId: "doku-page-id",
+      notionUrl: "https://notion.so/doku",
+      currentInterval: 5,
+    },
   ],
   recentlyAdded: [
     { vocab: "猫", kana: "ねこ", jlpt_level: "N5", difficulty: "1", notionUrl: "https://notion.so/neko" },
@@ -71,6 +82,52 @@ describe("App", () => {
     expect(screen.getByText("退く")).toBeInTheDocument();
     expect(screen.getByText("最近新增單字")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "開啟 Notion" })).toHaveAttribute("href", "https://notion.so/doku");
+  });
+
+  it("starts review mode, reveals the answer, submits remembered result, and removes the reviewed card", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (url, options = {}) => {
+      if (String(url).endsWith("/api/review")) {
+        return {
+          ok: true,
+          json: async () => ({
+            ok: true,
+            result: "remembered",
+            newInterval: 13,
+            newStatus: "Reviewing",
+            nextReviewDate: "2026-06-10",
+          }),
+        };
+      }
+
+      return {
+        ok: true,
+        json: async () => dashboardPayload,
+      };
+    });
+
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "儀表板" }));
+
+    fireEvent.click(await screen.findByRole("button", { name: "開始複習" }));
+    expect(screen.getByText("答案隱藏中：？？？？")).toBeInTheDocument();
+    expect(screen.queryByText("意思：讓開；退讓")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "顯示答案" }));
+    expect(screen.getByText("意思：讓開；退讓")).toBeInTheDocument();
+    expect(screen.getByText("例句：ちょっとどいてくれ。")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "記得 ✓" }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:3001/api/review",
+      expect.objectContaining({
+        method: "PATCH",
+        body: JSON.stringify({ notionPageId: "doku-page-id", result: "remembered", currentInterval: 5 }),
+      }),
+    ));
+    expect(await screen.findByText("✓ 已記錄！下次複習：13 天後（2026-06-10）")).toBeInTheDocument();
+
+    await waitFor(() => expect(screen.getByText("🎉 今日所有單字複習完成！")).toBeInTheDocument());
   });
 
   it("clears the textarea after a successful save and keeps the saved result visible", async () => {

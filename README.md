@@ -126,9 +126,10 @@ http://localhost:5173
 後端 API：
 
 ```text
-POST http://localhost:3001/api/moji-to-notion
-GET  http://localhost:3001/api/dashboard-stats
-GET  http://localhost:3001/api/health
+POST  http://localhost:3001/api/moji-to-notion
+GET   http://localhost:3001/api/dashboard-stats
+PATCH http://localhost:3001/api/review
+GET   http://localhost:3001/api/health
 ```
 
 ## 學習數據儀表板
@@ -143,12 +144,53 @@ GET  http://localhost:3001/api/health
 1. 總單字數、今日待複習數量、最高比例 JLPT 等級、平均難度。
 2. JLPT 等級分佈 CSS 長條圖。
 3. 難度 1～5 分佈 CSS 長條圖。
-4. 今日待複習清單，提供 Notion 連結。
-5. 最近新增 10 筆單字表格。
+4. 今日待複習清單，提供 Notion 連結與「開始複習」按鈕。
+5. 複習模式卡片：先隱藏答案，點「顯示答案」後可按「記得 ✓」或「忘了 ✗」更新 SRS。
+6. 最近新增 10 筆單字表格。
 
 所有 Notion 查詢都在後端完成。若使用 `@notionhq/client` v5+，後端會自動由 `NOTION_DATABASE_ID` 解析 `data_source_id` 後查詢。
 
 注意：Notion 的 Select 欄位若尚未建立某些選項（例如 `N4`、`N1`、`Unknown` 或難度 `4`、`5`），對該選項的 filter query 可能會回 validation warning；後端會把該項視為 0，其他統計仍會正常顯示。若想避免 warning，可先在 Notion Database 的 `JLPT 等級` 與 `難度` 欄位補齊所有選項。
+
+## 複習模式與 SRS 算法
+
+儀表板的「今日待複習清單」會從 Notion 讀取 `下次複習日 <= 今天` 且 `複習狀態 = New` 的單字。每張卡片可進入複習模式：
+
+1. 先顯示單字與讀音，答案區顯示 `？？？？`。
+2. 點「顯示答案」後，顯示中文意思、例句、翻譯與筆記。
+3. 點「記得 ✓」或「忘了 ✗」後，前端呼叫 `PATCH /api/review` 更新 Notion。
+4. 更新成功後，該單字會從今日待複習清單移除；全部完成時顯示「🎉 今日所有單字複習完成！」。
+
+SRS 規則：
+
+- `remembered`：`newInterval = Math.round(currentInterval * 2.5)`，上限 90 天，`複習狀態 = Reviewing`。
+- `forgotten`：`newInterval = 3`，`複習狀態 = New`。
+- `下次複習日 = 今天 + newInterval 天`，格式 `YYYY-MM-DD`。
+- 若前端沒有傳 `currentInterval`，後端預設為 3。
+
+複習 API 範例：
+
+```json
+{
+  "notionPageId": "頁面 ID",
+  "result": "remembered",
+  "currentInterval": 3
+}
+```
+
+成功回應：
+
+```json
+{
+  "ok": true,
+  "result": "remembered",
+  "newInterval": 8,
+  "newStatus": "Reviewing",
+  "nextReviewDate": "2026-06-05"
+}
+```
+
+後端會依照 `server/src/notionMapper.js` 的欄位名稱更新 Notion，目前為 `複習狀態` 與 `下次複習日`。
 
 
 ## 測試與建置

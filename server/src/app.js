@@ -1,7 +1,7 @@
 import express from "express";
 import cors from "cors";
 import { analyzeMojiTextWithClaude } from "./claudeService.js";
-import { buildNotionPageChildren, buildNotionProperties } from "./notionMapper.js";
+import { DEFAULT_PROPERTY_NAMES, buildNotionPageChildren, buildNotionProperties } from "./notionMapper.js";
 
 export async function resolveNotionDataSourceId({ notion, notionDatabaseId, notionDataSourceId }) {
   if (notionDataSourceId) return notionDataSourceId;
@@ -49,6 +49,46 @@ export async function queryVocabularyDuplicate({ notion, notionDatabaseId, notio
 const JLPT_LEVELS = ["N5", "N4", "N3", "N2", "N1", "Unknown"];
 const DIFFICULTY_LEVELS = ["1", "2", "3", "4", "5"];
 
+function addDays(dateString, days) {
+  const date = new Date(`${dateString}T00:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+export function calcNextReview(result, currentInterval = 3, today = new Date().toISOString().slice(0, 10)) {
+  const interval = Number.isFinite(Number(currentInterval)) && Number(currentInterval) > 0
+    ? Number(currentInterval)
+    : 3;
+
+  if (result === "remembered") {
+    const newInterval = Math.min(Math.round(interval * 2.5), 90);
+    return {
+      result,
+      newInterval,
+      newStatus: "Reviewing",
+      nextReviewDate: addDays(today, newInterval),
+    };
+  }
+
+  if (result === "forgotten") {
+    const newInterval = 3;
+    return {
+      result,
+      newInterval,
+      newStatus: "New",
+      nextReviewDate: addDays(today, newInterval),
+    };
+  }
+
+  throw new Error("result 必須是 remembered 或 forgotten");
+}
+
+function estimateCurrentInterval(jlptLevel) {
+  if (["N5", "N4"].includes(jlptLevel)) return 3;
+  if (jlptLevel === "N3") return 5;
+  return 7;
+}
+
 function firstPlainText(items = []) {
   return items.map((item) => item.plain_text || item.text?.content || "").join("").trim();
 }
@@ -70,10 +110,11 @@ function pageDateStart(page, propertyName) {
 }
 
 function mapDashboardPage(page, includeDifficulty = false) {
+  const jlptLevel = pageSelectName(page, "JLPT 等級") || "Unknown";
   const item = {
     vocab: pageTextProperty(page, "單字"),
     kana: pageTextProperty(page, "讀音"),
-    jlpt_level: pageSelectName(page, "JLPT 等級") || "Unknown",
+    jlpt_level: jlptLevel,
     notionUrl: page.url || "",
   };
 
@@ -81,6 +122,12 @@ function mapDashboardPage(page, includeDifficulty = false) {
     item.difficulty = pageSelectName(page, "難度") || "";
   } else {
     item.next_review = pageDateStart(page, "下次複習日");
+    item.notionPageId = page.id || "";
+    item.currentInterval = estimateCurrentInterval(jlptLevel);
+    item.meaning = pageTextProperty(page, "中文意思");
+    item.example_jp = pageTextProperty(page, "核心例句（日文）");
+    item.example_zh = pageTextProperty(page, "例句翻譯");
+    item.notes = pageTextProperty(page, "學習筆記");
   }
 
   return item;
@@ -204,6 +251,36 @@ export function createApp({ anthropic, notion, config }) {
       return res.status(500).json({
         ok: false,
         message: error.message || "儀表板統計讀取失敗",
+      });
+    }
+  });
+
+  app.patch("/api/review", async (req, res) => {
+    try {
+      if (!notion) {
+        return res.status(500).json({ ok: false, error: "後端缺少 NOTION_API_KEY" });
+      }
+
+      const { notionPageId, result, currentInterval } = req.body || {};
+      if (!notionPageId) {
+        return res.status(500).json({ ok: false, error: "請提供 notionPageId" });
+      }
+
+      const review = calcNextReview(result, currentInterval);
+      await notion.pages.update({
+        page_id: notionPageId,
+        properties: {
+          [DEFAULT_PROPERTY_NAMES.review_status]: { select: { name: review.newStatus } },
+          [DEFAULT_PROPERTY_NAMES.next_review]: { date: { start: review.nextReviewDate } },
+        },
+      });
+
+      return res.json({ ok: true, ...review });
+    } catch (error) {
+      console.error("Review update error:", error);
+      return res.status(500).json({
+        ok: false,
+        error: error.message || "複習結果更新失敗",
       });
     }
   });
