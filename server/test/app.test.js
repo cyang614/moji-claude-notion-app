@@ -58,6 +58,24 @@ function createNotionMock(queryResponse = { results: [] }) {
   };
 }
 
+function createNotionV5Mock(queryResponse = { results: [] }) {
+  return {
+    databases: {
+      retrieve: vi.fn(),
+      update: vi.fn(),
+    },
+    dataSources: {
+      query: vi.fn().mockResolvedValue(queryResponse),
+    },
+    pages: {
+      create: vi.fn().mockResolvedValue({
+        id: "notion-page-id",
+        url: "https://notion.so/notion-page-id",
+      }),
+    },
+  };
+}
+
 describe("POST /api/moji-to-notion", () => {
   it("sends Moji text to Claude, checks duplicates, and creates a Notion page with Chinese properties and page body content", async () => {
     const anthropic = createAnthropicMock();
@@ -96,6 +114,33 @@ describe("POST /api/moji-to-notion", () => {
     expect(notionPayload.properties["漢字假名對照"].rich_text[0].text.content).toContain("王位（おうい）");
     expect(JSON.stringify(notionPayload.children)).toContain("Claude 整理內容");
     expect(JSON.stringify(notionPayload.children)).toContain("選挙戦（せんきょせん）");
+  });
+
+  it("uses Notion SDK v5 dataSources.query when databases.query is not available", async () => {
+    const anthropic = createAnthropicMock();
+    const notion = createNotionV5Mock();
+
+    const app = createApp({
+      anthropic,
+      notion,
+      config: {
+        notionDatabaseId: "database-id",
+        claudeModel: "claude-test-model",
+        allowedOrigin: "http://localhost:5173",
+      },
+    });
+
+    await request(app)
+      .post("/api/moji-to-notion")
+      .send({ mojiText: "退く②⓪\nどく\n让开；躲开；退让" })
+      .expect(200);
+
+    expect(notion.dataSources.query).toHaveBeenCalledWith({
+      data_source_id: "database-id",
+      filter: { property: "單字", title: { equals: "退く" } },
+      page_size: 1,
+    });
+    expect(notion.pages.create).toHaveBeenCalledOnce();
   });
 
   it("returns 409 and skips page creation when the Claude-parsed vocab already exists in Notion", async () => {

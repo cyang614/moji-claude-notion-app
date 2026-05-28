@@ -3,6 +3,28 @@ import cors from "cors";
 import { analyzeMojiTextWithClaude } from "./claudeService.js";
 import { buildNotionPageChildren, buildNotionProperties } from "./notionMapper.js";
 
+export async function queryVocabularyDuplicate({ notion, notionDatabaseId, vocab }) {
+  const filter = { property: "單字", title: { equals: vocab } };
+
+  if (typeof notion.dataSources?.query === "function") {
+    return notion.dataSources.query({
+      data_source_id: notionDatabaseId,
+      filter,
+      page_size: 1,
+    });
+  }
+
+  if (typeof notion.databases?.query === "function") {
+    return notion.databases.query({
+      database_id: notionDatabaseId,
+      filter,
+      page_size: 1,
+    });
+  }
+
+  throw new Error("目前的 Notion SDK 不支援 database/data source query，請更新 @notionhq/client 或確認 SDK 版本");
+}
+
 export function createApp({ anthropic, notion, config }) {
   const app = express();
   const allowedOrigin = config.allowedOrigin || "http://localhost:5173";
@@ -46,10 +68,10 @@ export function createApp({ anthropic, notion, config }) {
         model: config.claudeModel,
       });
 
-      const duplicateResult = await notion.databases.query({
-        database_id: config.notionDatabaseId,
-        filter: { property: "單字", title: { equals: structuredData.vocab } },
-        page_size: 1,
+      const duplicateResult = await queryVocabularyDuplicate({
+        notion,
+        notionDatabaseId: config.notionDatabaseId,
+        vocab: structuredData.vocab,
       });
 
       const existingPage = duplicateResult.results?.[0];
