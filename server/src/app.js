@@ -3,12 +3,25 @@ import cors from "cors";
 import { analyzeMojiTextWithClaude } from "./claudeService.js";
 import { buildNotionPageChildren, buildNotionProperties } from "./notionMapper.js";
 
-export async function queryVocabularyDuplicate({ notion, notionDatabaseId, vocab }) {
+export async function resolveNotionDataSourceId({ notion, notionDatabaseId, notionDataSourceId }) {
+  if (notionDataSourceId) return notionDataSourceId;
+
+  if (typeof notion.databases?.retrieve === "function") {
+    const database = await notion.databases.retrieve({ database_id: notionDatabaseId });
+    const resolvedDataSourceId = database.data_sources?.[0]?.id;
+    if (resolvedDataSourceId) return resolvedDataSourceId;
+  }
+
+  return notionDatabaseId;
+}
+
+export async function queryVocabularyDuplicate({ notion, notionDatabaseId, notionDataSourceId, vocab }) {
   const filter = { property: "單字", title: { equals: vocab } };
 
   if (typeof notion.dataSources?.query === "function") {
+    const dataSourceId = await resolveNotionDataSourceId({ notion, notionDatabaseId, notionDataSourceId });
     return notion.dataSources.query({
-      data_source_id: notionDatabaseId,
+      data_source_id: dataSourceId,
       filter,
       page_size: 1,
     });
@@ -39,6 +52,7 @@ export function createApp({ anthropic, notion, config }) {
       hasClaudeClient: Boolean(anthropic),
       hasNotionClient: Boolean(notion),
       hasNotionDatabaseId: Boolean(config.notionDatabaseId),
+      hasNotionDataSourceId: Boolean(config.notionDataSourceId),
     });
   });
 
@@ -71,6 +85,7 @@ export function createApp({ anthropic, notion, config }) {
       const duplicateResult = await queryVocabularyDuplicate({
         notion,
         notionDatabaseId: config.notionDatabaseId,
+        notionDataSourceId: config.notionDataSourceId,
         vocab: structuredData.vocab,
       });
 

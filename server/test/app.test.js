@@ -61,7 +61,11 @@ function createNotionMock(queryResponse = { results: [] }) {
 function createNotionV5Mock(queryResponse = { results: [] }) {
   return {
     databases: {
-      retrieve: vi.fn(),
+      retrieve: vi.fn().mockResolvedValue({
+        id: "database-id",
+        object: "database",
+        data_sources: [{ id: "data-source-id", name: "學習筆記" }],
+      }),
       update: vi.fn(),
     },
     dataSources: {
@@ -135,8 +139,9 @@ describe("POST /api/moji-to-notion", () => {
       .send({ mojiText: "退く②⓪\nどく\n让开；躲开；退让" })
       .expect(200);
 
+    expect(notion.databases.retrieve).toHaveBeenCalledWith({ database_id: "database-id" });
     expect(notion.dataSources.query).toHaveBeenCalledWith({
-      data_source_id: "database-id",
+      data_source_id: "data-source-id",
       filter: { property: "單字", title: { equals: "退く" } },
       page_size: 1,
     });

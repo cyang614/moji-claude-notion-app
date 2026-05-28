@@ -75,6 +75,8 @@ nano .env
 ANTHROPIC_API_KEY=你的_Claude_API_Key
 NOTION_API_KEY=你的_Notion_Integration_Secret
 NOTION_DATABASE_ID=你的_Notion_Database_ID
+# 選填：新版 Notion SDK 查詢用。若留空，後端會用 NOTION_DATABASE_ID 自動解析第一個 data source id。
+NOTION_DATA_SOURCE_ID=
 CLAUDE_MODEL=claude-3-5-sonnet-latest
 CORS_ORIGIN=http://localhost:5173
 PORT=3001
@@ -83,8 +85,10 @@ PORT=3001
 注意：
 
 1. Claude API Key 和 Notion API Key 只能放在後端 `.env`，不要放到 React 前端。
-2. Notion Integration 必須先被邀請到指定 Database，否則 API 會沒有權限。
-3. `NOTION_DATABASE_ID` 可從 Notion Database 網址取得。
+2. `NOTION_API_KEY` 是 Notion Integration Secret，通常以 `ntn_` 或 `secret_` 開頭；`36c63d22...` 這種 32 位 UUID 是 Database ID，不是 API token。
+3. Notion Integration 必須先被邀請到指定 Database：打開資料庫右上角 `...` → `Connections` / `連線` → 加入 integration，例如 `moji_AI`。否則 API 會回 `Could not find database with ID`。
+4. `NOTION_DATABASE_ID` 可從 Notion Database 網址取得，例如 `36c63d22fde1805d8030df079be7c556`。
+5. 若你使用 `@notionhq/client` v5+，查詢 API 需要 `data_source_id`；本專案會自動從 `NOTION_DATABASE_ID` 解析第一個 data source。若你想固定指定，也可以填 `NOTION_DATA_SOURCE_ID`。
 
 ## 安裝
 

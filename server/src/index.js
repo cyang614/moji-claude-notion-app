@@ -18,6 +18,7 @@ const app = createApp({
   notion,
   config: {
     notionDatabaseId: process.env.NOTION_DATABASE_ID,
+    notionDataSourceId: process.env.NOTION_DATA_SOURCE_ID,
     claudeModel: process.env.CLAUDE_MODEL || "claude-3-5-sonnet-latest",
     allowedOrigin: process.env.CORS_ORIGIN || "http://localhost:5173",
   },
