@@ -115,3 +115,97 @@ export async function analyzeMojiTextWithClaude({ anthropic, mojiText, model }) 
 
   throw new Error("Claude 沒有回傳可解析的結構化資料");
 }
+
+const GENERATE_VOCAB_QUIZ_TOOL = {
+  name: "generate_vocab_quiz",
+  description: "Create one concise Japanese vocabulary quiz question for a Taiwanese Traditional Chinese learner.",
+  input_schema: {
+    type: "object",
+    additionalProperties: false,
+    required: ["question", "choices", "answer", "explanation", "target_vocab"],
+    properties: {
+      question: { type: "string" },
+      choices: { type: "array", minItems: 2, maxItems: 4, items: { type: "string" } },
+      answer: { type: "string" },
+      explanation: { type: "string" },
+      target_vocab: { type: "string" },
+    },
+  },
+};
+
+function validateQuizData(data) {
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    throw new Error("Claude 小測驗回傳格式不是物件");
+  }
+
+  const quiz = {
+    question: String(data.question || "").trim(),
+    choices: Array.isArray(data.choices) ? data.choices.map((choice) => String(choice || "").trim()).filter(Boolean).slice(0, 4) : [],
+    answer: String(data.answer || "").trim(),
+    explanation: String(data.explanation || "").trim(),
+    target_vocab: String(data.target_vocab || data.vocab || "").trim(),
+  };
+
+  if (!quiz.question) throw new Error("Claude 小測驗缺少 question");
+  if (quiz.choices.length < 2) throw new Error("Claude 小測驗 choices 至少需要 2 個選項");
+  if (!quiz.answer) throw new Error("Claude 小測驗缺少 answer");
+  if (!quiz.choices.includes(quiz.answer)) throw new Error("Claude 小測驗 answer 必須符合 choices 其中一個選項");
+  if (!quiz.explanation) throw new Error("Claude 小測驗缺少 explanation");
+  if (!quiz.target_vocab) throw new Error("Claude 小測驗缺少 target_vocab");
+
+  return quiz;
+}
+
+function parseQuizJsonResponse(text) {
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  if (start === -1 || end <= start) {
+    throw new Error("Claude 小測驗回傳內容中找不到 JSON 物件");
+  }
+  return validateQuizData(JSON.parse(text.slice(start, end + 1)));
+}
+
+function buildQuizPrompt(items) {
+  const compactItems = items.slice(0, 8).map((item) => ({
+    vocab: item.vocab || "",
+    kana: item.kana || "",
+    meaning: item.meaning || "",
+    example_jp: item.example_jp || "",
+    example_zh: item.example_zh || "",
+    notes: item.notes || "",
+    lapseCount: item.lapseCount || 0,
+  }));
+
+  return `請根據以下日文單字資料，產生 1 題適合台灣繁體中文學習者的小測驗。\n\n要求：\n1. 優先測驗語感、意思辨析或例句理解，不要只考死背。\n2. 使用台灣繁體中文。\n3. 回傳 question、choices、answer、explanation、target_vocab。\n4. answer 必須完全等於 choices 其中一個選項。\n\n單字資料：\n${JSON.stringify(compactItems, null, 2)}`;
+}
+
+export async function generateQuizWithClaude({ anthropic, items, model }) {
+  if (!anthropic?.messages?.create) {
+    throw new Error("Claude client 尚未正確初始化");
+  }
+
+  const response = await anthropic.messages.create({
+    model,
+    max_tokens: 1200,
+    temperature: 0.2,
+    system: "你是日語老師，專門為台灣繁體中文學習者產生短小、精準、可立即作答的小測驗。請只輸出結構化資料。",
+    messages: [
+      {
+        role: "user",
+        content: buildQuizPrompt(items),
+      },
+    ],
+    tools: [GENERATE_VOCAB_QUIZ_TOOL],
+    tool_choice: { type: "tool", name: GENERATE_VOCAB_QUIZ_TOOL.name },
+  });
+
+  const toolBlock = response.content?.find(
+    (block) => block.type === "tool_use" && block.name === GENERATE_VOCAB_QUIZ_TOOL.name
+  );
+  if (toolBlock?.input) return validateQuizData(toolBlock.input);
+
+  const text = getResponseText(response);
+  if (text) return parseQuizJsonResponse(text);
+
+  throw new Error("Claude 沒有回傳可解析的小測驗資料");
+}

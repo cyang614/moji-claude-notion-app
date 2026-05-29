@@ -356,6 +356,9 @@ export default function Dashboard() {
           <h1>學習數據儀表板</h1>
           <p className="dashboard-subtitle">從 Notion 學習筆記即時整理 JLPT、難度與複習進度。</p>
         </div>
+        <button className="ghost-button dashboard-refresh-button" type="button" onClick={loadStats}>
+          重新整理儀表板
+        </button>
       </div>
 
       <div className="stats-row">
@@ -369,6 +372,25 @@ export default function Dashboard() {
         <StatCard label="最高比例的 JLPT 等級" value={summary.topJlpt} helper={`${summary.topJlptCount} 個單字`} />
         <StatCard label="平均難度" value={summary.averageDifficulty} helper="1 簡單 / 5 困難" />
       </div>
+
+      {stats?.srs && (
+        <section className="panel dashboard-section srs-summary-panel">
+          <div className="panel-header compact-header">
+            <div>
+              <h2>SRS 複習摘要</h2>
+              <p>由 Notion 的複習狀態、目前間隔、複習次數與生疏次數即時計算。</p>
+            </div>
+          </div>
+          <div className="srs-summary-grid">
+            <span>New：{stats.srs.status?.New || 0}</span>
+            <span>Reviewing：{stats.srs.status?.Reviewing || 0}</span>
+            <span>Archived：{stats.srs.status?.Archived || 0}</span>
+            <span>待複習平均間隔：{stats.srs.averageInterval || 0} 天</span>
+            <span>總複習次數：{stats.srs.totalReviews || 0}</span>
+            <span>總生疏次數：{stats.srs.totalLapses || 0}</span>
+          </div>
+        </section>
+      )}
 
       <div className="dashboard-two-column">
         <BarDistribution title="JLPT 等級分佈" data={stats?.jlpt} order={jlptOrder} labelFor={(key) => jlptLabels[key] || key} classPrefix="jlpt-" />

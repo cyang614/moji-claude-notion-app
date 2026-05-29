@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { analyzeMojiTextWithClaude } from "../src/claudeService.js";
+import { analyzeMojiTextWithClaude, generateQuizWithClaude } from "../src/claudeService.js";
 
 const toolInput = {
   vocab: "退く",
@@ -82,5 +82,35 @@ describe("analyzeMojiTextWithClaude", () => {
     });
 
     expect(data.vocab).toBe("退く");
+  });
+});
+
+describe("generateQuizWithClaude", () => {
+  it("rejects a Claude quiz when the answer is not one of the choices", async () => {
+    const anthropic = {
+      messages: {
+        create: vi.fn().mockResolvedValue({
+          content: [
+            {
+              type: "tool_use",
+              name: "generate_vocab_quiz",
+              input: {
+                question: "「退く」的意思是？",
+                choices: ["前進", "購買", "書寫", "休息"],
+                answer: "讓開",
+                explanation: "「どく」是讓開。",
+                target_vocab: "退く",
+              },
+            },
+          ],
+        }),
+      },
+    };
+
+    await expect(generateQuizWithClaude({
+      anthropic,
+      items: [{ vocab: "退く", kana: "どく", meaning: "讓開" }],
+      model: "claude-test-model",
+    })).rejects.toThrow("answer 必須符合 choices 其中一個選項");
   });
 });

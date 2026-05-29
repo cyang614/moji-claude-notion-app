@@ -9,6 +9,10 @@ V3 特色：除了基礎單字資料，會自動補強 JLPT、難度、標籤、
 ```text
 moji-claude-notion-app/
   client/                 # React + Vite 前端
+    src/
+      App.jsx             # 分析器主畫面與 tab 導航
+      TodayTasks.jsx      # 今日任務、Claude 小測驗、錯題本 / 生疏分析
+      Dashboard.jsx       # 學習數據儀表板與 SRS 複習卡片
   server/                 # Express API 後端
     src/
       prompt.js           # Claude Prompt
@@ -131,7 +135,14 @@ http://localhost:5173
 後端 API：
 
 ```text
-POST  http://localhost:3001/api/moji-to-notion
+POST  http://localhost:3001/api/moji-to-notion          # 舊版一鍵分析並寫入
+POST  http://localhost:3001/api/moji-preview            # 只呼叫 Claude 分析，回傳可編輯預覽
+POST  http://localhost:3001/api/vocab-to-notion         # 將前端確認/編輯後的 JSON 寫入 Notion
+POST  http://localhost:3001/api/batch-moji-to-notion    # 多筆 Moji 內容批次分析、查重、匯入
+GET   http://localhost:3001/api/notion-schema-health    # 檢查 Notion 欄位名稱與型別
+GET   http://localhost:3001/api/today-tasks          # 今日任務：待複習、生疏補強、測驗素材
+POST  http://localhost:3001/api/quiz/generate        # Claude 小測驗產生
+GET   http://localhost:3001/api/weakness-report      # 錯題本 / 生疏分析
 GET   http://localhost:3001/api/dashboard-stats
 PATCH http://localhost:3001/api/review
 GET   http://localhost:3001/api/health
@@ -139,10 +150,24 @@ GET   http://localhost:3001/api/health
 
 ## 學習數據儀表板
 
-前端上方有兩個 tab：
+前端上方有三個 tab：
 
-- `分析器`：貼上 Moji 辭書內容並寫入 Notion。
+- `分析器`：貼上 Moji 辭書內容，可選擇一鍵分析並寫入 Notion，或先「只分析預覽」再人工編輯欄位後確認儲存。
+- `今日任務`：呼叫 `GET /api/today-tasks` 與 `GET /api/weakness-report`，把今日待複習、錯題/生疏補強與 Claude 小測驗素材整理成每日入口。
 - `儀表板`：呼叫後端 `GET /api/dashboard-stats`，從 Notion Database 讀取統計資料並顯示學習進度。
+
+分析器新增工具：
+
+1. **預覽編輯**：`POST /api/moji-preview` 只呼叫 Claude，不查重也不寫入 Notion；前端會顯示可編輯欄位，確認後用 `POST /api/vocab-to-notion` 儲存。適合先校正中文意思、例句、JLPT 或難度。
+2. **Notion 欄位檢查**：`GET /api/notion-schema-health` 會檢查必要欄位是否存在，以及型別是否正確，例如 `詞性` 必須是 Select、`單字` 必須是 Title。
+3. **SRS 設定提示**：前端會顯示目前固定規則：N5/N4 初始 3 天、N3 初始 5 天、N2/N1/Unknown 初始 7 天；Again/Hard/Good/Easy 對應 3 天、×1.2、×2.5、×4.0。
+4. **批次匯入**：多筆 Moji 內容以單獨一行 `---` 分隔，送到 `POST /api/batch-moji-to-notion`。後端會逐筆 Claude 分析、Notion 查重、寫入，回傳 created / duplicate / failed 摘要。
+
+今日任務模式包含：
+
+1. **今日任務清單**：`GET /api/today-tasks` 會整合今日待複習、Again/生疏次數較高的單字，以及適合拿來做 Claude 小測驗的素材。
+2. **Claude 小測驗模式**：前端按「產生 Claude 小測驗」後呼叫 `POST /api/quiz/generate`，後端使用 Claude 產生 1 題台灣繁體中文選擇題，優先測語感、例句理解或意思辨析。
+3. **錯題本 / 生疏分析**：`GET /api/weakness-report` 會依照 Notion 的 `生疏次數`、`複習次數` 排序，列出高風險單字與建議動作，讓 SRS 不只是排日期，也能優先處理真正不熟的內容。
 
 儀表板包含：
 
@@ -152,7 +177,8 @@ GET   http://localhost:3001/api/health
 4. 今日待複習清單，提供 Notion 連結、「開始複習」按鈕與日文發音按鈕。
 5. 複習模式卡片：先隱藏答案，點「顯示答案」後可用四選按鈕（生疏 / 困難 / 一般 / 簡單）更新 SRS。
 6. 鍵盤快捷鍵：`Space` 顯示答案、`1` 送出生疏 Again、`2` 送出一般 Good。
-7. 最近新增 10 筆單字表格。
+7. SRS 複習摘要：New / Reviewing / Archived 數量、待複習平均間隔、總複習次數與總生疏次數。
+8. 最近新增 10 筆單字表格。
 
 所有 Notion 查詢都在後端完成。儀表板統計會用少量大查詢取得資料，再由 Node.js 以 JavaScript 統計 JLPT / 難度分佈，降低 Notion API rate limit 風險。若使用 `@notionhq/client` v5+，後端會自動由 `NOTION_DATABASE_ID` 解析 `data_source_id` 後查詢。
 
@@ -235,13 +261,99 @@ npm run build
 
 ## API Request 範例
 
+### 一鍵分析並寫入
+
 ```json
 {
   "mojiText": "勉強【べんきょう】\n名詞・スル動詞\n學習；用功\n例文：毎日日本語を勉強します。"
 }
 ```
 
-成功回應會包含 V2 欄位：
+### 只分析預覽
+
+```http
+POST /api/moji-preview
+```
+
+```json
+{
+  "mojiText": "退く②⓪\nどく\n让开；躲开；退让"
+}
+```
+
+成功後前端可編輯 `data`，再送：
+
+```http
+POST /api/vocab-to-notion
+```
+
+```json
+{
+  "data": {
+    "vocab": "退く",
+    "kana": "どく",
+    "pos": "自動詞・五段",
+    "meaning": "讓開；退讓",
+    "grammar": "ます形：退きます；て形：退いて",
+    "example_jp": "ちょっとどいてくれ。",
+    "example_zh": "請讓開一下。",
+    "notes": "口語常用。",
+    "jlpt_level": "N3",
+    "difficulty": "3",
+    "tags": ["日常", "口語"],
+    "review_status": "New",
+    "next_review": "2026-06-01"
+  }
+}
+```
+
+### 批次匯入
+
+```http
+POST /api/batch-moji-to-notion
+```
+
+```json
+{
+  "entries": [
+    "退く②⓪\nどく",
+    "猫\nねこ"
+  ]
+}
+```
+
+成功回應會包含每筆狀態：
+
+```json
+{
+  "ok": true,
+  "summary": { "total": 2, "created": 1, "duplicate": 1, "failed": 0 },
+  "items": [
+    { "index": 0, "status": "created", "vocab": "退く", "notionUrl": "..." },
+    { "index": 1, "status": "duplicate", "vocab": "猫", "notionUrl": "..." }
+  ]
+}
+```
+
+### Notion schema health
+
+```http
+GET /api/notion-schema-health
+```
+
+回傳：
+
+```json
+{
+  "ok": true,
+  "healthy": false,
+  "checked": 29,
+  "missing": [{ "property": "學習筆記", "expectedType": "rich_text" }],
+  "typeMismatches": [{ "property": "詞性", "expectedType": "select", "actualType": "rich_text" }]
+}
+```
+
+舊版一鍵成功回應會包含 V3 欄位：
 
 ```json
 {

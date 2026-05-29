@@ -71,15 +71,21 @@ const claudeV3Response = {
 };
 
 function createAnthropicMock(response = claudeV3Response) {
+  const responses = Array.isArray(response) ? response : [response];
+  let index = 0;
   return {
     messages: {
-      create: vi.fn().mockResolvedValue({
-        content: [
-          {
-            type: "text",
-            text: JSON.stringify(response),
-          },
-        ],
+      create: vi.fn().mockImplementation(async () => {
+        const payload = responses[Math.min(index, responses.length - 1)];
+        index += 1;
+        return {
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify(payload),
+            },
+          ],
+        };
       }),
     },
   };
@@ -338,6 +344,13 @@ describe("GET /api/dashboard-stats", () => {
       total: 4,
       jlpt: { N5: 1, N4: 0, N3: 1, N2: 2, N1: 0, Unknown: 0 },
       difficulty: { "1": 1, "2": 1, "3": 1, "4": 1, "5": 0 },
+      srs: {
+        status: { New: 1, Reviewing: 2, Archived: 1 },
+        dueTodayCount: 2,
+        averageInterval: 6,
+        totalReviews: 7,
+        totalLapses: 2,
+      },
     });
     expect(res.body.dueToday).toEqual([
       {
@@ -420,6 +433,170 @@ describe("GET /api/dashboard-stats", () => {
     expect(res.body.jlpt.N5).toBe(0);
     expect(res.body.dueToday).toEqual(expect.any(Array));
     expect(warnSpy).toHaveBeenCalledWith("Dashboard Notion query failed:", "Notion temporary failure");
+  });
+});
+
+
+describe("today tasks, Claude quiz, and weakness report routes", () => {
+  it("builds a prioritized today task plan from due reviews and weak vocabulary", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-28T00:00:00.000Z"));
+
+    const notion = createDashboardNotionMock();
+    const app = createApp({
+      anthropic: null,
+      notion,
+      config: { notionDatabaseId: "database-id", claudeModel: "claude-test-model" },
+    });
+
+    const res = await request(app).get("/api/today-tasks").expect(200);
+
+    expect(res.body).toMatchObject({
+      ok: true,
+      today: "2026-05-28",
+      summary: {
+        dueReviewCount: 2,
+        weakItemCount: 1,
+        suggestedQuizCount: 2,
+      },
+    });
+    expect(res.body.tasks).toEqual([
+      expect.objectContaining({
+        id: "review-due",
+        type: "review",
+        title: "完成今日待複習",
+        priority: "high",
+        count: 2,
+      }),
+      expect.objectContaining({
+        id: "weakness-focus",
+        type: "weakness",
+        title: "優先處理生疏單字",
+        priority: "medium",
+        count: 1,
+      }),
+      expect.objectContaining({
+        id: "claude-quiz",
+        type: "quiz",
+        title: "Claude 小測驗",
+        priority: "medium",
+        count: 2,
+      }),
+    ]);
+    expect(res.body.tasks[0].items[0]).toMatchObject({ vocab: "猫", notionPageId: "猫-id" });
+    expect(res.body.tasks[1].items[0]).toMatchObject({ vocab: "退く", lapseCount: 2 });
+    expect(res.body.tasks[2].items.map((item) => item.vocab)).toEqual(["猫", "退く"]);
+
+    vi.useRealTimers();
+  });
+
+  it("generates a Claude quiz from selected vocabulary without touching Notion", async () => {
+    const anthropic = {
+      messages: {
+        create: vi.fn().mockResolvedValue({
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({
+                question: "「退く（どく）」在這句中最接近哪個意思？",
+                choices: ["讓開", "前進", "購買", "書寫"],
+                answer: "讓開",
+                explanation: "「どく」常表示從某處讓出空間。",
+                target_vocab: "退く",
+              }),
+            },
+          ],
+        }),
+      },
+    };
+    const notion = createNotionMock();
+    const app = createApp({
+      anthropic,
+      notion,
+      config: { notionDatabaseId: "database-id", claudeModel: "claude-test-model" },
+    });
+
+    const res = await request(app)
+      .post("/api/quiz/generate")
+      .send({
+        items: [
+          {
+            vocab: "退く",
+            kana: "どく",
+            meaning: "讓開；退讓",
+            example_jp: "ちょっとどいてくれ。",
+            example_zh: "請讓開一下。",
+            notes: "口語常用。",
+          },
+        ],
+      })
+      .expect(200);
+
+    expect(res.body).toEqual({
+      ok: true,
+      quiz: {
+        question: "「退く（どく）」在這句中最接近哪個意思？",
+        choices: ["讓開", "前進", "購買", "書寫"],
+        answer: "讓開",
+        explanation: "「どく」常表示從某處讓出空間。",
+        target_vocab: "退く",
+      },
+    });
+    expect(anthropic.messages.create).toHaveBeenCalledWith(expect.objectContaining({
+      model: "claude-test-model",
+      temperature: 0.2,
+      messages: [expect.objectContaining({ role: "user" })],
+    }));
+    expect(notion.databases.query).not.toHaveBeenCalled();
+    expect(notion.pages.create).not.toHaveBeenCalled();
+  });
+
+  it("paginates Notion pages before ranking weakness report items", async () => {
+    const firstPage = Array.from({ length: 100 }, (_, index) => notionPage({
+      vocab: `低風險${index}`,
+      kana: "ていりすく",
+      reviewCount: 1,
+      lapseCount: 0,
+      nextReview: "2026-06-01",
+      reviewStatus: "Reviewing",
+    }));
+    const secondPage = [notionPage({
+      vocab: "奥義",
+      kana: "おうぎ",
+      meaning: "奧義；祕訣",
+      reviewCount: 9,
+      lapseCount: 4,
+      nextReview: "2026-05-20",
+      reviewStatus: "Reviewing",
+    })];
+    const notion = {
+      databases: {
+        retrieve: vi.fn().mockResolvedValue({
+          id: "database-id",
+          data_sources: [{ id: "data-source-id" }],
+        }),
+      },
+      dataSources: {
+        query: vi.fn().mockImplementation(async (payload) => {
+          if (payload.start_cursor === "cursor-2") {
+            return { results: secondPage, has_more: false, next_cursor: null };
+          }
+          return { results: firstPage, has_more: true, next_cursor: "cursor-2" };
+        }),
+      },
+      pages: { create: vi.fn() },
+    };
+    const app = createApp({
+      anthropic: null,
+      notion,
+      config: { notionDatabaseId: "database-id", claudeModel: "claude-test-model" },
+    });
+
+    const res = await request(app).get("/api/weakness-report").expect(200);
+
+    expect(res.body.summary.totalLapses).toBe(4);
+    expect(res.body.items[0]).toMatchObject({ vocab: "奥義", lapseCount: 4, riskLevel: "high" });
+    expect(notion.dataSources.query).toHaveBeenCalledWith(expect.objectContaining({ start_cursor: "cursor-2" }));
   });
 });
 
@@ -542,5 +719,107 @@ describe("POST /api/moji-to-notion", () => {
 
     const res = await request(app).post("/api/moji-to-notion").send({}).expect(400);
     expect(res.body.ok).toBe(false);
+  });
+});
+
+
+describe("preview, manual save, batch import, and schema health routes", () => {
+  it("previews Claude structured data without touching Notion", async () => {
+    const anthropic = createAnthropicMock();
+    const notion = createNotionMock();
+    const app = createApp({
+      anthropic,
+      notion,
+      config: { notionDatabaseId: "database-id", claudeModel: "claude-test-model" },
+    });
+
+    const res = await request(app)
+      .post("/api/moji-preview")
+      .send({ mojiText: "退く②⓪\nどく\n让开" })
+      .expect(200);
+
+    expect(res.body).toMatchObject({ ok: true, mode: "preview", data: { vocab: "退く", meaning: expect.stringContaining("讓開") } });
+    expect(anthropic.messages.create).toHaveBeenCalledOnce();
+    expect(notion.databases.query).not.toHaveBeenCalled();
+    expect(notion.pages.create).not.toHaveBeenCalled();
+  });
+
+  it("saves edited preview data to Notion without calling Claude again", async () => {
+    const anthropic = createAnthropicMock();
+    const notion = createNotionMock();
+    const app = createApp({
+      anthropic,
+      notion,
+      config: { notionDatabaseId: "database-id", claudeModel: "claude-test-model" },
+    });
+
+    const edited = { ...claudeV3Response, meaning: "讓開；退讓（已人工校正）" };
+    const res = await request(app)
+      .post("/api/vocab-to-notion")
+      .send({ data: edited })
+      .expect(200);
+
+    expect(res.body).toMatchObject({ ok: true, data: { vocab: "退く", meaning: "讓開；退讓（已人工校正）" }, notionPageId: "notion-page-id" });
+    expect(anthropic.messages.create).not.toHaveBeenCalled();
+    expect(notion.databases.query).toHaveBeenCalledWith({
+      database_id: "database-id",
+      filter: { property: "單字", title: { equals: "退く" } },
+      page_size: 1,
+    });
+    expect(notion.pages.create.mock.calls[0][0].properties["中文意思"].rich_text[0].text.content).toBe("讓開；退讓（已人工校正）");
+  });
+
+  it("batch imports multiple Moji entries and reports created, duplicate, and failed rows", async () => {
+    const secondResponse = { ...claudeV3Response, vocab: "猫", kana: "ねこ", meaning: "貓" };
+    const anthropic = createAnthropicMock([claudeV3Response, secondResponse]);
+    const notion = createNotionMock();
+    notion.databases.query
+      .mockResolvedValueOnce({ results: [] })
+      .mockResolvedValueOnce({ results: [{ id: "existing-neko", url: "https://notion.so/existing-neko" }] });
+    const app = createApp({
+      anthropic,
+      notion,
+      config: { notionDatabaseId: "database-id", claudeModel: "claude-test-model" },
+    });
+
+    const res = await request(app)
+      .post("/api/batch-moji-to-notion")
+      .send({ entries: ["退く②⓪\nどく", "猫\nねこ"] })
+      .expect(200);
+
+    expect(res.body.summary).toEqual({ total: 2, created: 1, duplicate: 1, failed: 0 });
+    expect(res.body.items).toEqual([
+      expect.objectContaining({ index: 0, status: "created", vocab: "退く", notionUrl: "https://notion.so/notion-page-id" }),
+      expect.objectContaining({ index: 1, status: "duplicate", vocab: "猫", notionUrl: "https://notion.so/existing-neko" }),
+    ]);
+    expect(anthropic.messages.create).toHaveBeenCalledTimes(2);
+    expect(notion.pages.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("checks Notion schema health and reports missing or mismatched properties", async () => {
+    const notion = createNotionMock();
+    notion.databases.retrieve = vi.fn().mockResolvedValue({
+      id: "database-id",
+      properties: {
+        單字: { type: "title" },
+        讀音: { type: "rich_text" },
+        詞性: { type: "rich_text" },
+        中文意思: { type: "rich_text" },
+        "JLPT 等級": { type: "select" },
+      },
+    });
+    const app = createApp({
+      anthropic: null,
+      notion,
+      config: { notionDatabaseId: "database-id", claudeModel: "claude-test-model" },
+    });
+
+    const res = await request(app).get("/api/notion-schema-health").expect(200);
+
+    expect(res.body.ok).toBe(true);
+    expect(res.body.healthy).toBe(false);
+    expect(res.body.checked).toBeGreaterThan(10);
+    expect(res.body.missing).toContainEqual({ property: "學習筆記", expectedType: "rich_text" });
+    expect(res.body.typeMismatches).toContainEqual({ property: "詞性", expectedType: "select", actualType: "rich_text" });
   });
 });
