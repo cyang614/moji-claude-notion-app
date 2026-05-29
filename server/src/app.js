@@ -49,6 +49,17 @@ export async function queryVocabularyDuplicate({ notion, notionDatabaseId, notio
 const JLPT_LEVELS = ["N5", "N4", "N3", "N2", "N1", "Unknown"];
 const DIFFICULTY_LEVELS = ["1", "2", "3", "4", "5"];
 
+const REVIEW_RESULTS = {
+  again: { label: "生疏", multiplier: 0, status: "New" },
+  hard: { label: "困難", multiplier: 1.2, status: "Reviewing" },
+  good: { label: "一般", multiplier: 2.5, status: "Reviewing" },
+  easy: { label: "簡單", multiplier: 4, status: "Reviewing" },
+};
+const LEGACY_REVIEW_ALIASES = {
+  forgotten: "again",
+  remembered: "good",
+};
+
 function addDays(dateString, days) {
   const date = new Date(`${dateString}T00:00:00.000Z`);
   date.setUTCDate(date.getUTCDate() + days);
@@ -56,31 +67,26 @@ function addDays(dateString, days) {
 }
 
 export function calcNextReview(result, currentInterval = 3, today = new Date().toISOString().slice(0, 10)) {
+  const normalizedResult = LEGACY_REVIEW_ALIASES[result] || result;
+  const rule = REVIEW_RESULTS[normalizedResult];
+  if (!rule) {
+    throw new Error("result 必須是 again、hard、good 或 easy");
+  }
+
   const interval = Number.isFinite(Number(currentInterval)) && Number(currentInterval) > 0
     ? Number(currentInterval)
     : 3;
+  const newInterval = normalizedResult === "again"
+    ? 3
+    : Math.min(Math.max(Math.round(interval * rule.multiplier), 1), 90);
 
-  if (result === "remembered") {
-    const newInterval = Math.min(Math.round(interval * 2.5), 90);
-    return {
-      result,
-      newInterval,
-      newStatus: "Reviewing",
-      nextReviewDate: addDays(today, newInterval),
-    };
-  }
-
-  if (result === "forgotten") {
-    const newInterval = 3;
-    return {
-      result,
-      newInterval,
-      newStatus: "New",
-      nextReviewDate: addDays(today, newInterval),
-    };
-  }
-
-  throw new Error("result 必須是 remembered 或 forgotten");
+  return {
+    result: normalizedResult,
+    resultLabel: rule.label,
+    newInterval,
+    newStatus: rule.status,
+    nextReviewDate: addDays(today, newInterval),
+  };
 }
 
 function estimateCurrentInterval(jlptLevel) {
@@ -139,6 +145,18 @@ function getSettledResults(settledResult, fallback = []) {
   return fallback;
 }
 
+function countBySelect(pages, propertyName, keys) {
+  return pages.reduce((counts, page) => {
+    const key = pageSelectName(page, propertyName) || (propertyName === "JLPT 等級" ? "Unknown" : "");
+    if (Object.prototype.hasOwnProperty.call(counts, key)) counts[key] += 1;
+    return counts;
+  }, Object.fromEntries(keys.map((key) => [key, 0])));
+}
+
+function sortByNextReviewDescending(pages) {
+  return pages.slice().sort((a, b) => pageDateStart(b, "下次複習日").localeCompare(pageDateStart(a, "下次複習日")));
+}
+
 export async function buildDashboardStats({ notion, notionDatabaseId, notionDataSourceId, today = new Date().toISOString().slice(0, 10) }) {
   const resolvedDataSourceId = typeof notion.dataSources?.query === "function"
     ? await resolveNotionDataSourceId({ notion, notionDatabaseId, notionDataSourceId })
@@ -151,63 +169,38 @@ export async function buildDashboardStats({ notion, notionDatabaseId, notionData
     payload,
   });
 
-  const jlptQueries = JLPT_LEVELS.map((level) => query({
-    filter: { property: "JLPT 等級", select: { equals: level } },
+  const allVocabularyQuery = query({
+    sorts: [{ property: "下次複習日", direction: "descending" }],
     page_size: 100,
-  }));
-
-  const difficultyQueries = DIFFICULTY_LEVELS.map((level) => query({
-    filter: { property: "難度", select: { equals: level } },
-    page_size: 100,
-  }));
+  });
 
   const dueTodayQuery = query({
     filter: {
       and: [
         { property: "下次複習日", date: { on_or_before: today } },
-        { property: "複習狀態", select: { equals: "New" } },
+        {
+          or: [
+            { property: "複習狀態", select: { equals: "New" } },
+            { property: "複習狀態", select: { equals: "Reviewing" } },
+          ],
+        },
       ],
     },
     page_size: 20,
   });
 
-  const recentlyAddedQuery = query({
-    sorts: [{ property: "下次複習日", direction: "descending" }],
-    page_size: 10,
-  });
-
-  const totalQuery = query({ page_size: 100 });
-
-  const settled = await Promise.allSettled([
-    ...jlptQueries,
-    ...difficultyQueries,
-    dueTodayQuery,
-    recentlyAddedQuery,
-    totalQuery,
-  ]);
-
-  const jlpt = Object.fromEntries(JLPT_LEVELS.map((level, index) => [
-    level,
-    getSettledResults(settled[index]).length,
-  ]));
-
-  const difficultyOffset = JLPT_LEVELS.length;
-  const difficulty = Object.fromEntries(DIFFICULTY_LEVELS.map((level, index) => [
-    level,
-    getSettledResults(settled[difficultyOffset + index]).length,
-  ]));
-
-  const dueTodayIndex = difficultyOffset + DIFFICULTY_LEVELS.length;
-  const recentlyAddedIndex = dueTodayIndex + 1;
-  const totalIndex = recentlyAddedIndex + 1;
+  const settled = await Promise.allSettled([allVocabularyQuery, dueTodayQuery]);
+  const allPages = getSettledResults(settled[0]);
+  const duePages = getSettledResults(settled[1]);
+  const recentlyAddedPages = sortByNextReviewDescending(allPages).slice(0, 10);
 
   return {
     ok: true,
-    total: getSettledResults(settled[totalIndex]).length,
-    jlpt,
-    difficulty,
-    dueToday: getSettledResults(settled[dueTodayIndex]).map((page) => mapDashboardPage(page, false)),
-    recentlyAdded: getSettledResults(settled[recentlyAddedIndex]).map((page) => mapDashboardPage(page, true)),
+    total: allPages.length,
+    jlpt: countBySelect(allPages, "JLPT 等級", JLPT_LEVELS),
+    difficulty: countBySelect(allPages, "難度", DIFFICULTY_LEVELS),
+    dueToday: duePages.map((page) => mapDashboardPage(page, false)),
+    recentlyAdded: recentlyAddedPages.map((page) => mapDashboardPage(page, true)),
   };
 }
 

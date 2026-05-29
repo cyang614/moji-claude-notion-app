@@ -1,3 +1,4 @@
+import { StrictMode } from "react";
 import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -84,14 +85,37 @@ describe("App", () => {
     expect(screen.getByRole("link", { name: "開啟 Notion" })).toHaveAttribute("href", "https://notion.so/doku");
   });
 
-  it("starts review mode, reveals the answer, submits remembered result, and removes the reviewed card", async () => {
+  it("deduplicates dashboard stats requests under React StrictMode", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      json: async () => dashboardPayload,
+    });
+
+    render(
+      <StrictMode>
+        <App />
+      </StrictMode>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "儀表板" }));
+
+    expect(await screen.findByText("學習數據儀表板")).toBeInTheDocument();
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+  });
+
+  it("starts review mode, supports TTS and keyboard shortcuts, submits Good result, and removes the reviewed card", async () => {
+    const speakMock = vi.fn();
+    const cancelMock = vi.fn();
+    Object.defineProperty(window, "speechSynthesis", {
+      configurable: true,
+      value: { speak: speakMock, cancel: cancelMock },
+    });
     const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (url, options = {}) => {
       if (String(url).endsWith("/api/review")) {
         return {
           ok: true,
           json: async () => ({
             ok: true,
-            result: "remembered",
+            result: "good",
             newInterval: 13,
             newStatus: "Reviewing",
             nextReviewDate: "2026-06-10",
@@ -109,28 +133,35 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "儀表板" }));
 
     fireEvent.click(await screen.findByRole("button", { name: "開始複習" }));
+    fireEvent.click(screen.getByRole("button", { name: "播放 退く 發音" }));
+    expect(speakMock).toHaveBeenCalledWith(expect.objectContaining({ text: "退く", lang: "ja-JP" }));
     expect(screen.getByText("答案隱藏中：？？？？")).toBeInTheDocument();
     expect(screen.queryByText("意思：讓開；退讓")).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "顯示答案" }));
+    fireEvent.keyDown(window, { key: " " });
     expect(screen.getByText("意思：讓開；退讓")).toBeInTheDocument();
     expect(screen.getByText("例句：ちょっとどいてくれ。")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "記得 ✓" }));
+    fireEvent.keyDown(window, { key: "2" });
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
       "http://localhost:3001/api/review",
       expect.objectContaining({
         method: "PATCH",
-        body: JSON.stringify({ notionPageId: "doku-page-id", result: "remembered", currentInterval: 5 }),
+        body: JSON.stringify({ notionPageId: "doku-page-id", result: "good", currentInterval: 5 }),
       }),
     ));
-    expect(await screen.findByText("✓ 已記錄！下次複習：13 天後（2026-06-10）")).toBeInTheDocument();
+    expect(await screen.findByText("✓ 已記錄：一般，下次複習 13 天後（2026-06-10）")).toBeInTheDocument();
 
     await waitFor(() => expect(screen.getByText("🎉 今日所有單字複習完成！")).toBeInTheDocument());
   });
 
-  it("clears the textarea after a successful save and keeps the saved result visible", async () => {
+  it("clears the textarea after a successful save, keeps the saved result visible, and pronounces vocab", async () => {
+    const speakMock = vi.fn();
+    Object.defineProperty(window, "speechSynthesis", {
+      configurable: true,
+      value: { speak: speakMock, cancel: vi.fn() },
+    });
     vi.spyOn(globalThis, "fetch").mockResolvedValue({
       ok: true,
       json: async () => successPayload,
@@ -146,6 +177,8 @@ describe("App", () => {
     expect(screen.getByText("已儲存到 Notion ✓")).toBeInTheDocument();
     expect(screen.getByText("輸入框已清空，可貼入下一個單字")).toBeInTheDocument();
     expect(screen.getByText("退く")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "播放 退く 發音" }));
+    expect(speakMock).toHaveBeenCalledWith(expect.objectContaining({ text: "退く", lang: "ja-JP" }));
     expect(screen.getByRole("link", { name: "開啟 Notion 頁面" })).toHaveAttribute("href", "https://notion.so/page-id");
   });
 

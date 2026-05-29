@@ -2,7 +2,19 @@ import request from "supertest";
 import { describe, expect, it, vi } from "vitest";
 import { calcNextReview, createApp } from "../src/app.js";
 
-function notionPage({ vocab, kana = "", jlpt = "Unknown", difficulty = "3", nextReview = null, url = "https://notion.so/page" }) {
+function notionPage({
+  vocab,
+  kana = "",
+  jlpt = "Unknown",
+  difficulty = "3",
+  nextReview = null,
+  reviewStatus = "New",
+  meaning = "",
+  exampleJp = "",
+  exampleZh = "",
+  notes = "",
+  url = "https://notion.so/page",
+}) {
   return {
     id: `${vocab}-id`,
     url,
@@ -11,7 +23,12 @@ function notionPage({ vocab, kana = "", jlpt = "Unknown", difficulty = "3", next
       讀音: { rich_text: kana ? [{ plain_text: kana, text: { content: kana } }] : [] },
       "JLPT 等級": { select: jlpt ? { name: jlpt } : null },
       難度: { select: difficulty ? { name: difficulty } : null },
+      複習狀態: { select: reviewStatus ? { name: reviewStatus } : null },
       下次複習日: { date: nextReview ? { start: nextReview } : null },
+      中文意思: { rich_text: meaning ? [{ plain_text: meaning, text: { content: meaning } }] : [] },
+      "核心例句（日文）": { rich_text: exampleJp ? [{ plain_text: exampleJp, text: { content: exampleJp } }] : [] },
+      例句翻譯: { rich_text: exampleZh ? [{ plain_text: exampleZh, text: { content: exampleZh } }] : [] },
+      學習筆記: { rich_text: notes ? [{ plain_text: notes, text: { content: notes } }] : [] },
     },
   };
 }
@@ -98,14 +115,26 @@ function createNotionV5Mock(queryResponse = { results: [] }) {
 
 function createDashboardNotionMock() {
   const pages = [
-    notionPage({ vocab: "猫", kana: "ねこ", jlpt: "N5", difficulty: "1", nextReview: "2026-05-27", url: "https://notion.so/neko" }),
-    notionPage({ vocab: "退く", kana: "どく", jlpt: "N3", difficulty: "3", nextReview: "2026-05-26", url: "https://notion.so/doku" }),
-    notionPage({ vocab: "概念", kana: "がいねん", jlpt: "N2", difficulty: "4", nextReview: "2026-06-01", url: "https://notion.so/gainen" }),
+    notionPage({ vocab: "猫", kana: "ねこ", jlpt: "N5", difficulty: "1", nextReview: "2026-05-27", reviewStatus: "New", url: "https://notion.so/neko" }),
+    notionPage({
+      vocab: "退く",
+      kana: "どく",
+      jlpt: "N3",
+      difficulty: "3",
+      nextReview: "2026-05-26",
+      reviewStatus: "Reviewing",
+      meaning: "讓開；退讓",
+      exampleJp: "ちょっとどいてくれ。",
+      exampleZh: "請讓開一下。",
+      notes: "口語常用。",
+      url: "https://notion.so/doku",
+    }),
+    notionPage({ vocab: "概念", kana: "がいねん", jlpt: "N2", difficulty: "4", nextReview: "2026-06-01", reviewStatus: "Reviewing", url: "https://notion.so/gainen" }),
+    notionPage({ vocab: "保留", kana: "ほりゅう", jlpt: "N2", difficulty: "2", nextReview: "2026-05-25", reviewStatus: "Archived", url: "https://notion.so/horyu" }),
   ];
 
-  function selectName(payload, property) {
-    return payload.filter?.select?.equals
-      ?? payload.filter?.and?.find((item) => item.property === property)?.select?.equals;
+  function hasDueFilter(payload) {
+    return JSON.stringify(payload.filter || {}).includes("下次複習日");
   }
 
   return {
@@ -118,15 +147,9 @@ function createDashboardNotionMock() {
     },
     dataSources: {
       query: vi.fn().mockImplementation(async (payload) => {
-        const jlpt = payload.filter?.property === "JLPT 等級" ? payload.filter.select.equals : null;
-        const difficulty = payload.filter?.property === "難度" ? payload.filter.select.equals : null;
-        const status = selectName(payload, "複習狀態");
-        const isDue = payload.filter?.and?.some((item) => item.property === "下次複習日");
-
-        if (jlpt) return { results: pages.filter((page) => page.properties["JLPT 等級"].select?.name === jlpt) };
-        if (difficulty) return { results: pages.filter((page) => page.properties["難度"].select?.name === difficulty) };
-        if (status === "New" && isDue) return { results: pages.slice(0, 2) };
-        if (payload.sorts) return { results: pages.slice().reverse() };
+        if (hasDueFilter(payload)) {
+          return { results: pages.filter((page) => ["New", "Reviewing"].includes(page.properties.複習狀態.select?.name) && page.properties.下次複習日.date?.start <= "2026-05-28") };
+        }
         return { results: pages };
       }),
     },
@@ -135,22 +158,40 @@ function createDashboardNotionMock() {
 }
 
 describe("SRS review mode", () => {
-  it("calculates the next review date for remembered and forgotten results", () => {
-    expect(calcNextReview("remembered", 3, "2026-05-28")).toEqual({
-      result: "remembered",
-      newInterval: 8,
-      newStatus: "Reviewing",
-      nextReviewDate: "2026-06-05",
-    });
-
-    expect(calcNextReview("forgotten", undefined, "2026-05-28")).toEqual({
-      result: "forgotten",
+  it("calculates next review dates for Anki-style four choice results", () => {
+    expect(calcNextReview("again", 5, "2026-05-28")).toEqual({
+      result: "again",
+      resultLabel: "生疏",
       newInterval: 3,
       newStatus: "New",
       nextReviewDate: "2026-05-31",
     });
 
-    expect(calcNextReview("remembered", 60, "2026-05-28").newInterval).toBe(90);
+    expect(calcNextReview("hard", 5, "2026-05-28")).toEqual({
+      result: "hard",
+      resultLabel: "困難",
+      newInterval: 6,
+      newStatus: "Reviewing",
+      nextReviewDate: "2026-06-03",
+    });
+
+    expect(calcNextReview("good", 5, "2026-05-28")).toEqual({
+      result: "good",
+      resultLabel: "一般",
+      newInterval: 13,
+      newStatus: "Reviewing",
+      nextReviewDate: "2026-06-10",
+    });
+
+    expect(calcNextReview("easy", 5, "2026-05-28")).toEqual({
+      result: "easy",
+      resultLabel: "簡單",
+      newInterval: 20,
+      newStatus: "Reviewing",
+      nextReviewDate: "2026-06-17",
+    });
+
+    expect(calcNextReview("easy", 30, "2026-05-28").newInterval).toBe(90);
   });
 
   it("updates Notion review status and next review date", async () => {
@@ -166,12 +207,13 @@ describe("SRS review mode", () => {
 
     const res = await request(app)
       .patch("/api/review")
-      .send({ notionPageId: "page-123", result: "remembered", currentInterval: 3 })
+      .send({ notionPageId: "page-123", result: "good", currentInterval: 3 })
       .expect(200);
 
     expect(res.body).toEqual({
       ok: true,
-      result: "remembered",
+      result: "good",
+      resultLabel: "一般",
       newInterval: 8,
       newStatus: "Reviewing",
       nextReviewDate: "2026-06-05",
@@ -206,9 +248,9 @@ describe("GET /api/dashboard-stats", () => {
 
     expect(res.body).toMatchObject({
       ok: true,
-      total: 3,
-      jlpt: { N5: 1, N4: 0, N3: 1, N2: 1, N1: 0, Unknown: 0 },
-      difficulty: { "1": 1, "2": 0, "3": 1, "4": 1, "5": 0 },
+      total: 4,
+      jlpt: { N5: 1, N4: 0, N3: 1, N2: 2, N1: 0, Unknown: 0 },
+      difficulty: { "1": 1, "2": 1, "3": 1, "4": 1, "5": 0 },
     });
     expect(res.body.dueToday).toEqual([
       {
@@ -232,10 +274,10 @@ describe("GET /api/dashboard-stats", () => {
         notionPageId: "退く-id",
         notionUrl: "https://notion.so/doku",
         currentInterval: 5,
-        meaning: "",
-        example_jp: "",
-        example_zh: "",
-        notes: "",
+        meaning: "讓開；退讓",
+        example_jp: "ちょっとどいてくれ。",
+        example_zh: "請讓開一下。",
+        notes: "口語常用。",
       },
     ]);
     expect(res.body.recentlyAdded[0]).toEqual({
@@ -246,15 +288,26 @@ describe("GET /api/dashboard-stats", () => {
       notionUrl: "https://notion.so/gainen",
     });
     expect(notion.databases.retrieve).toHaveBeenCalledWith({ database_id: "database-id" });
+    expect(notion.dataSources.query).toHaveBeenCalledTimes(2);
     expect(notion.dataSources.query).toHaveBeenCalledWith(expect.objectContaining({
       data_source_id: "data-source-id",
-      filter: { property: "JLPT 等級", select: { equals: "N5" } },
+      sorts: [{ property: "下次複習日", direction: "descending" }],
       page_size: 100,
     }));
     expect(notion.dataSources.query).toHaveBeenCalledWith(expect.objectContaining({
       data_source_id: "data-source-id",
       page_size: 20,
-      filter: expect.objectContaining({ and: expect.any(Array) }),
+      filter: {
+        and: [
+          { property: "下次複習日", date: { on_or_before: expect.any(String) } },
+          {
+            or: [
+              { property: "複習狀態", select: { equals: "New" } },
+              { property: "複習狀態", select: { equals: "Reviewing" } },
+            ],
+          },
+        ],
+      },
     }));
   });
 

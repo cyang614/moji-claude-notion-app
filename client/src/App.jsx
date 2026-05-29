@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import Dashboard from "./Dashboard.jsx";
+import { speakJapanese } from "./speech.js";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:3001";
 
@@ -73,11 +74,16 @@ async function submitMojiText(mojiText) {
   return result;
 }
 
-function Field({ label, value, wide = false }) {
+function Field({ label, value, wide = false, onSpeak, speakLabel }) {
   return (
     <div className={`field-card ${wide ? "field-card-wide" : ""}`}>
       <div className="field-label">{label}</div>
-      <div className="field-value">{value || "—"}</div>
+      <div className="field-value-row">
+        <div className="field-value">{value || "—"}</div>
+        {onSpeak && value && (
+          <button className="speak-button" type="button" onClick={onSpeak} aria-label={speakLabel || `播放 ${value} 發音`}>🔊</button>
+        )}
+      </div>
     </div>
   );
 }
@@ -243,7 +249,13 @@ export default function App() {
               <h3 className="section-title">基礎資料</h3>
               <div className="field-grid">
                 {basicFields.map(([label, key]) => (
-                  <Field key={key} label={label} value={vocabData[key]} />
+                  <Field
+                    key={key}
+                    label={label}
+                    value={vocabData[key]}
+                    onSpeak={key === "vocab" ? () => speakJapanese(vocabData[key]) : undefined}
+                    speakLabel={key === "vocab" ? `播放 ${vocabData[key]} 發音` : undefined}
+                  />
                 ))}
               </div>
 

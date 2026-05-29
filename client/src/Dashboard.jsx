@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
+import { speakJapanese } from "./speech.js";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:3001";
+let dashboardStatsRequest = null;
 const jlptOrder = ["N5", "N4", "N3", "N2", "N1", "Unknown"];
 const difficultyOrder = ["1", "2", "3", "4", "5"];
 const jlptLabels = {
@@ -13,14 +15,24 @@ const jlptLabels = {
 };
 
 async function fetchDashboardStats() {
-  const response = await fetch(`${API_BASE_URL}/api/dashboard-stats`);
-  const result = await response.json().catch(() => null);
+  if (dashboardStatsRequest) return dashboardStatsRequest;
 
-  if (!response.ok || !result?.ok) {
-    throw new Error(result?.message || `儀表板 API 錯誤：HTTP ${response.status}`);
+  dashboardStatsRequest = (async () => {
+    const response = await fetch(`${API_BASE_URL}/api/dashboard-stats`);
+    const result = await response.json().catch(() => null);
+
+    if (!response.ok || !result?.ok) {
+      throw new Error(result?.message || `儀表板 API 錯誤：HTTP ${response.status}`);
+    }
+
+    return result;
+  })();
+
+  try {
+    return await dashboardStatsRequest;
+  } finally {
+    dashboardStatsRequest = null;
   }
-
-  return result;
 }
 
 async function submitReviewResult({ notionPageId, result, currentInterval }) {
@@ -49,6 +61,17 @@ function getAverageDifficulty(difficulty = {}) {
   const total = Object.entries(difficulty).reduce((sum, [level, count]) => sum + Number(level) * Number(count || 0), 0);
   const count = Object.values(difficulty).reduce((sum, value) => sum + Number(value || 0), 0);
   return count > 0 ? (total / count).toFixed(1) : "0.0";
+}
+
+const reviewResultOptions = [
+  { result: "again", label: "生疏", english: "Again", hint: "3天", className: "again-button" },
+  { result: "hard", label: "困難", english: "Hard", hint: "×1.2", className: "hard-button" },
+  { result: "good", label: "一般", english: "Good", hint: "×2.5", className: "good-button" },
+  { result: "easy", label: "簡單", english: "Easy", hint: "×4.0", className: "easy-button" },
+];
+
+function reviewResultLabel(result) {
+  return reviewResultOptions.find((option) => option.result === result)?.label || result;
 }
 
 function StatCard({ label, value, tone = "default", helper }) {
@@ -107,7 +130,12 @@ function ReviewCard({ item, onStartReview }) {
   return (
     <article className="review-card">
       <div>
-        <div className="review-vocab">{item.vocab || "—"}</div>
+        <div className="review-vocab-row">
+          <div className="review-vocab">{item.vocab || "—"}</div>
+          {item.vocab && (
+            <button className="speak-button" type="button" onClick={() => speakJapanese(item.vocab)} aria-label={`播放 ${item.vocab} 清單發音`}>🔊</button>
+          )}
+        </div>
         <div className="review-kana">{item.kana || "—"}</div>
       </div>
       <div className="review-actions">
@@ -120,6 +148,27 @@ function ReviewCard({ item, onStartReview }) {
 }
 
 function ActiveReviewCard({ item, showAnswer, reviewLoading, reviewFeedback, reviewError, onClose, onShowAnswer, onSubmit }) {
+  useEffect(() => {
+    if (!item) return undefined;
+
+    function handleKeyDown(event) {
+      const targetTag = event.target?.tagName?.toLowerCase();
+      if (["input", "textarea", "select", "button"].includes(targetTag) || reviewLoading) return;
+
+      if (event.key === " " && !showAnswer) {
+        event.preventDefault();
+        onShowAnswer();
+      }
+
+      if (!showAnswer) return;
+      if (event.key === "1") onSubmit("again");
+      if (event.key === "2") onSubmit("good");
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [item, onShowAnswer, onSubmit, reviewLoading, showAnswer]);
+
   if (!item) return null;
 
   return (
@@ -129,7 +178,12 @@ function ActiveReviewCard({ item, showAnswer, reviewLoading, reviewFeedback, rev
         <button className="close-review-button" type="button" onClick={onClose} aria-label="關閉複習卡片">✕ 關閉</button>
       </div>
       <div className="active-review-main">
-        <div className="active-review-vocab">{item.vocab || "—"}</div>
+        <div className="active-review-vocab-row">
+          <div className="active-review-vocab">{item.vocab || "—"}</div>
+          {item.vocab && (
+            <button className="speak-button active-speak-button" type="button" onClick={() => speakJapanese(item.vocab)} aria-label={`播放 ${item.vocab} 發音`}>🔊</button>
+          )}
+        </div>
         <div className="active-review-kana">{item.kana || "—"}</div>
       </div>
 
@@ -144,19 +198,31 @@ function ActiveReviewCard({ item, showAnswer, reviewLoading, reviewFeedback, rev
           {item.example_jp && <p>例句：{item.example_jp}</p>}
           {item.example_zh && <p>翻譯：{item.example_zh}</p>}
           {item.notes && <p>筆記：{item.notes}</p>}
-          <div className="review-result-actions">
-            <button className="danger-button" type="button" disabled={reviewLoading} onClick={() => onSubmit("forgotten")}>忘了 ✗</button>
-            <button className="success-button" type="button" disabled={reviewLoading} onClick={() => onSubmit("remembered")}>記得 ✓</button>
+          <div className="review-shortcuts-hint">快捷鍵：Space 顯示答案、1 生疏、2 一般</div>
+          <div className="review-result-actions four-choice-actions">
+            {reviewResultOptions.map((option) => (
+              <button
+                className={`review-choice-button ${option.className}`}
+                type="button"
+                disabled={reviewLoading}
+                key={option.result}
+                onClick={() => onSubmit(option.result)}
+              >
+                <span>{option.label}</span>
+                <small>{option.english} · {option.hint}</small>
+              </button>
+            ))}
           </div>
         </div>
       )}
 
       {reviewLoading && <div className="review-status-text">更新複習結果中...</div>}
-      {reviewFeedback?.result === "remembered" && (
-        <div className="review-feedback remembered">✓ 已記錄！下次複習：{reviewFeedback.newInterval} 天後（{reviewFeedback.nextReviewDate}）</div>
-      )}
-      {reviewFeedback?.result === "forgotten" && (
-        <div className="review-feedback forgotten">已重置，3 天後再複習</div>
+      {reviewFeedback && (
+        <div className={`review-feedback ${reviewFeedback.result === "again" ? "forgotten" : "remembered"}`}>
+          {reviewFeedback.result === "again"
+            ? `已重置：${reviewResultLabel(reviewFeedback.result)}，${reviewFeedback.newInterval} 天後再複習（${reviewFeedback.nextReviewDate}）`
+            : `✓ 已記錄：${reviewFeedback.resultLabel || reviewResultLabel(reviewFeedback.result)}，下次複習 ${reviewFeedback.newInterval} 天後（${reviewFeedback.nextReviewDate}）`}
+        </div>
       )}
       {reviewError && <div className="review-feedback error-text">{reviewError}</div>}
     </article>
@@ -313,7 +379,7 @@ export default function Dashboard() {
         <div className="panel-header compact-header">
           <div>
             <h2>今日待複習清單</h2>
-            <p>下次複習日已到且狀態為 New 的單字，最多顯示 20 筆。</p>
+            <p>下次複習日已到且狀態為 New 或 Reviewing 的單字，最多顯示 20 筆。</p>
           </div>
         </div>
         <ActiveReviewCard

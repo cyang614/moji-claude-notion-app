@@ -144,36 +144,47 @@ GET   http://localhost:3001/api/health
 1. 總單字數、今日待複習數量、最高比例 JLPT 等級、平均難度。
 2. JLPT 等級分佈 CSS 長條圖。
 3. 難度 1～5 分佈 CSS 長條圖。
-4. 今日待複習清單，提供 Notion 連結與「開始複習」按鈕。
-5. 複習模式卡片：先隱藏答案，點「顯示答案」後可按「記得 ✓」或「忘了 ✗」更新 SRS。
-6. 最近新增 10 筆單字表格。
+4. 今日待複習清單，提供 Notion 連結、「開始複習」按鈕與日文發音按鈕。
+5. 複習模式卡片：先隱藏答案，點「顯示答案」後可用四選按鈕（生疏 / 困難 / 一般 / 簡單）更新 SRS。
+6. 鍵盤快捷鍵：`Space` 顯示答案、`1` 送出生疏 Again、`2` 送出一般 Good。
+7. 最近新增 10 筆單字表格。
 
-所有 Notion 查詢都在後端完成。若使用 `@notionhq/client` v5+，後端會自動由 `NOTION_DATABASE_ID` 解析 `data_source_id` 後查詢。
+所有 Notion 查詢都在後端完成。儀表板統計會用少量大查詢取得資料，再由 Node.js 以 JavaScript 統計 JLPT / 難度分佈，降低 Notion API rate limit 風險。若使用 `@notionhq/client` v5+，後端會自動由 `NOTION_DATABASE_ID` 解析 `data_source_id` 後查詢。
 
-注意：Notion 的 Select 欄位若尚未建立某些選項（例如 `N4`、`N1`、`Unknown` 或難度 `4`、`5`），對該選項的 filter query 可能會回 validation warning；後端會把該項視為 0，其他統計仍會正常顯示。若想避免 warning，可先在 Notion Database 的 `JLPT 等級` 與 `難度` 欄位補齊所有選項。
+注意：目前 dashboard 不再對每個 JLPT / 難度選項個別發 query，因此不需要為了統計補齊所有 select 選項；但 Notion Database 欄位仍需存在。
 
 ## 複習模式與 SRS 算法
 
-儀表板的「今日待複習清單」會從 Notion 讀取 `下次複習日 <= 今天` 且 `複習狀態 = New` 的單字。每張卡片可進入複習模式：
+儀表板的「今日待複習清單」會從 Notion 讀取 `下次複習日 <= 今天` 且 `複習狀態 = New 或 Reviewing` 的單字。每張卡片可進入複習模式：
 
 1. 先顯示單字與讀音，答案區顯示 `？？？？`。
-2. 點「顯示答案」後，顯示中文意思、例句、翻譯與筆記。
-3. 點「記得 ✓」或「忘了 ✗」後，前端呼叫 `PATCH /api/review` 更新 Notion。
-4. 更新成功後，該單字會從今日待複習清單移除；全部完成時顯示「🎉 今日所有單字複習完成！」。
+2. 可點單字旁 `🔊`，使用瀏覽器 Web Speech API 以 `ja-JP` 發音。
+3. 點「顯示答案」或按 `Space` 後，顯示中文意思、例句、翻譯與筆記。
+4. 用四選按鈕送出記憶程度；也可按 `1` 送出生疏 Again、按 `2` 送出一般 Good。
+5. 更新成功後，該單字會從今日待複習清單移除；全部完成時顯示「🎉 今日所有單字複習完成！」。
 
 SRS 規則：
 
-- `remembered`：`newInterval = Math.round(currentInterval * 2.5)`，上限 90 天，`複習狀態 = Reviewing`。
-- `forgotten`：`newInterval = 3`，`複習狀態 = New`。
+| result | UI | newInterval | Notion 複習狀態 |
+|---|---|---:|---|
+| `again` | 生疏 Again | `3` | `New` |
+| `hard` | 困難 Hard | `Math.round(currentInterval * 1.2)` | `Reviewing` |
+| `good` | 一般 Good | `Math.round(currentInterval * 2.5)` | `Reviewing` |
+| `easy` | 簡單 Easy | `Math.round(currentInterval * 4.0)` | `Reviewing` |
+
+補充：
+
+- 間隔上限為 90 天。
 - `下次複習日 = 今天 + newInterval 天`，格式 `YYYY-MM-DD`。
 - 若前端沒有傳 `currentInterval`，後端預設為 3。
+- 後端仍相容舊值：`forgotten` 會視為 `again`，`remembered` 會視為 `good`。
 
 複習 API 範例：
 
 ```json
 {
   "notionPageId": "頁面 ID",
-  "result": "remembered",
+  "result": "good",
   "currentInterval": 3
 }
 ```
@@ -183,7 +194,8 @@ SRS 規則：
 ```json
 {
   "ok": true,
-  "result": "remembered",
+  "result": "good",
+  "resultLabel": "一般",
   "newInterval": 8,
   "newStatus": "Reviewing",
   "nextReviewDate": "2026-06-05"
