@@ -796,6 +796,60 @@ describe("preview, manual save, batch import, and schema health routes", () => {
     expect(notion.pages.create).toHaveBeenCalledTimes(1);
   });
 
+  it("checks Notion schema health from a Notion v5 data source schema", async () => {
+    const completeProperties = {
+      單字: { type: "title" },
+      讀音: { type: "rich_text" },
+      詞性: { type: "select" },
+      中文意思: { type: "rich_text" },
+      文法重點: { type: "rich_text" },
+      "核心例句（日文）": { type: "rich_text" },
+      例句翻譯: { type: "rich_text" },
+      學習筆記: { type: "rich_text" },
+      "JLPT 等級": { type: "select" },
+      難度: { type: "select" },
+      標籤: { type: "multi_select" },
+      常用搭配: { type: "rich_text" },
+      語感: { type: "rich_text" },
+      常見錯誤: { type: "rich_text" },
+      記憶法: { type: "rich_text" },
+      複習狀態: { type: "select" },
+      下次複習日: { type: "date" },
+      目前間隔: { type: "number" },
+      複習次數: { type: "number" },
+      生疏次數: { type: "number" },
+      上次複習日: { type: "date" },
+      最近複習結果: { type: "select" },
+      "原始 Moji 文字": { type: "rich_text" },
+      活用變化: { type: "rich_text" },
+      關聯詞整理: { type: "rich_text" },
+      近義詞: { type: "rich_text" },
+      反義詞: { type: "rich_text" },
+      全部例句: { type: "rich_text" },
+      漢字假名對照: { type: "rich_text" },
+    };
+    const notion = createNotionMock();
+    notion.databases.retrieve = vi.fn().mockResolvedValue({
+      id: "database-id",
+      data_sources: [{ id: "data-source-id" }],
+    });
+    notion.dataSources = {
+      retrieve: vi.fn().mockResolvedValue({ id: "data-source-id", properties: completeProperties }),
+    };
+    const app = createApp({
+      anthropic: null,
+      notion,
+      config: { notionDatabaseId: "database-id", claudeModel: "claude-test-model" },
+    });
+
+    const res = await request(app).get("/api/notion-schema-health").expect(200);
+
+    expect(res.body.healthy).toBe(true);
+    expect(res.body.missing).toEqual([]);
+    expect(res.body.typeMismatches).toEqual([]);
+    expect(notion.dataSources.retrieve).toHaveBeenCalledWith({ data_source_id: "data-source-id" });
+  });
+
   it("checks Notion schema health and reports missing or mismatched properties", async () => {
     const notion = createNotionMock();
     notion.databases.retrieve = vi.fn().mockResolvedValue({

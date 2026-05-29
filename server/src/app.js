@@ -463,13 +463,27 @@ async function analyzeThenSaveMojiText({ anthropic, notion, config, mojiText }) 
   return createVocabularyPageFromData({ notion, config, data: structuredData });
 }
 
-export async function checkNotionSchemaHealth({ notion, notionDatabaseId }) {
+async function resolveSchemaProperties({ notion, notionDatabaseId, notionDataSourceId }) {
+  const database = await notion.databases.retrieve({ database_id: notionDatabaseId });
+  if (database.properties && Object.keys(database.properties).length > 0) {
+    return { properties: database.properties, source: "database", dataSourceId: notionDataSourceId || "" };
+  }
+
+  const dataSourceId = notionDataSourceId || database.data_sources?.[0]?.id;
+  if (dataSourceId && typeof notion.dataSources?.retrieve === "function") {
+    const dataSource = await notion.dataSources.retrieve({ data_source_id: dataSourceId });
+    return { properties: dataSource.properties || {}, source: "data_source", dataSourceId };
+  }
+
+  return { properties: {}, source: "database", dataSourceId: dataSourceId || "" };
+}
+
+export async function checkNotionSchemaHealth({ notion, notionDatabaseId, notionDataSourceId }) {
   if (!notion?.databases?.retrieve) {
     throw new Error("目前的 Notion SDK 不支援 databases.retrieve，無法檢查 schema");
   }
 
-  const database = await notion.databases.retrieve({ database_id: notionDatabaseId });
-  const properties = database.properties || {};
+  const { properties, source, dataSourceId } = await resolveSchemaProperties({ notion, notionDatabaseId, notionDataSourceId });
   const entries = Object.entries(EXPECTED_NOTION_SCHEMA);
   const missing = [];
   const typeMismatches = [];
@@ -487,6 +501,8 @@ export async function checkNotionSchemaHealth({ notion, notionDatabaseId }) {
     ok: true,
     healthy: missing.length === 0 && typeMismatches.length === 0,
     checked: entries.length,
+    schemaSource: source,
+    dataSourceId,
     missing,
     typeMismatches,
   };
@@ -666,6 +682,7 @@ export function createApp({ anthropic, notion, config }) {
       const health = await checkNotionSchemaHealth({
         notion,
         notionDatabaseId: config.notionDatabaseId,
+        notionDataSourceId: config.notionDataSourceId,
       });
       return res.json(health);
     } catch (error) {
