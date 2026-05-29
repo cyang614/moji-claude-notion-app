@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildNotionPageChildren, buildNotionProperties } from "../src/notionMapper.js";
+import { buildNotionPageChildren, buildNotionProperties, buildReviewHistoryBlocks } from "../src/notionMapper.js";
 
 const v3Data = {
   vocab: "退く",
@@ -53,6 +53,11 @@ describe("Notion property mapper", () => {
     expect(properties["漢字假名對照"].rich_text[0].text.content).toContain("選挙戦（せんきょせん）");
     expect(properties["複習狀態"].select.name).toBe("New");
     expect(properties["下次複習日"].date.start).toBe("2026-05-28");
+    expect(properties["目前間隔"].number).toBe(5);
+    expect(properties["複習次數"].number).toBe(0);
+    expect(properties["生疏次數"].number).toBe(0);
+    expect(properties["上次複習日"].date).toBeNull();
+    expect(properties["最近複習結果"].select).toBeNull();
   });
 
   it("uses empty rich_text arrays for empty values and avoids invalid empty selects", () => {
@@ -88,8 +93,34 @@ describe("Notion property mapper", () => {
     expect(properties["JLPT 等級"].select).toBeNull();
     expect(properties["標籤"].multi_select).toEqual([]);
     expect(properties["下次複習日"].date).toBeNull();
+    expect(properties["目前間隔"].number).toBe(7);
+    expect(properties["複習次數"].number).toBe(0);
+    expect(properties["生疏次數"].number).toBe(0);
+    expect(properties["上次複習日"].date).toBeNull();
+    expect(properties["最近複習結果"].select).toBeNull();
     expect(properties["全部例句"].rich_text).toEqual([]);
     expect(properties["漢字假名對照"].rich_text).toEqual([]);
+  });
+
+  it("builds review history blocks for appending every review result to the Notion page body", () => {
+    const blocks = buildReviewHistoryBlocks({
+      reviewedAt: "2026-05-28",
+      resultLabel: "一般",
+      previousInterval: 3,
+      newInterval: 8,
+      reviewCount: 6,
+      nextReviewDate: "2026-06-05",
+    });
+
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0].type).toBe("bulleted_list_item");
+    const serialized = JSON.stringify(blocks);
+    expect(serialized).toContain("複習紀錄");
+    expect(serialized).toContain("2026-05-28");
+    expect(serialized).toContain("一般");
+    expect(serialized).toContain("間隔 3 → 8 天");
+    expect(serialized).toContain("第 6 次");
+    expect(serialized).toContain("下次 2026-06-05");
   });
 
   it("truncates all_examples and raw_moji_text database properties while keeping full content in page body", () => {

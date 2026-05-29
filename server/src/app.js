@@ -1,7 +1,7 @@
 import express from "express";
 import cors from "cors";
 import { analyzeMojiTextWithClaude } from "./claudeService.js";
-import { DEFAULT_PROPERTY_NAMES, buildNotionPageChildren, buildNotionProperties } from "./notionMapper.js";
+import { DEFAULT_PROPERTY_NAMES, buildNotionPageChildren, buildNotionProperties, buildReviewHistoryBlocks } from "./notionMapper.js";
 
 export async function resolveNotionDataSourceId({ notion, notionDatabaseId, notionDataSourceId }) {
   if (notionDataSourceId) return notionDataSourceId;
@@ -115,6 +115,11 @@ function pageDateStart(page, propertyName) {
   return page.properties?.[propertyName]?.date?.start || "";
 }
 
+function pageNumber(page, propertyName) {
+  const value = page?.properties?.[propertyName]?.number;
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
 function mapDashboardPage(page, includeDifficulty = false) {
   const jlptLevel = pageSelectName(page, "JLPT 等級") || "Unknown";
   const item = {
@@ -129,7 +134,15 @@ function mapDashboardPage(page, includeDifficulty = false) {
   } else {
     item.next_review = pageDateStart(page, "下次複習日");
     item.notionPageId = page.id || "";
-    item.currentInterval = estimateCurrentInterval(jlptLevel);
+    item.currentInterval = pageNumber(page, DEFAULT_PROPERTY_NAMES.current_interval) ?? estimateCurrentInterval(jlptLevel);
+    const reviewCount = pageNumber(page, DEFAULT_PROPERTY_NAMES.review_count);
+    const lapseCount = pageNumber(page, DEFAULT_PROPERTY_NAMES.lapse_count);
+    const lastReviewed = pageDateStart(page, DEFAULT_PROPERTY_NAMES.last_reviewed);
+    const lastReviewResult = pageSelectName(page, DEFAULT_PROPERTY_NAMES.last_review_result);
+    if (reviewCount !== null) item.reviewCount = reviewCount;
+    if (lapseCount !== null) item.lapseCount = lapseCount;
+    if (lastReviewed) item.lastReviewed = lastReviewed;
+    if (lastReviewResult) item.lastReviewResult = lastReviewResult;
     item.meaning = pageTextProperty(page, "中文意思");
     item.example_jp = pageTextProperty(page, "核心例句（日文）");
     item.example_zh = pageTextProperty(page, "例句翻譯");
@@ -259,16 +272,51 @@ export function createApp({ anthropic, notion, config }) {
         return res.status(500).json({ ok: false, error: "請提供 notionPageId" });
       }
 
-      const review = calcNextReview(result, currentInterval);
+      const today = new Date().toISOString().slice(0, 10);
+      const currentPage = typeof notion.pages?.retrieve === "function"
+        ? await notion.pages.retrieve({ page_id: notionPageId })
+        : null;
+      const previousInterval = pageNumber(currentPage, DEFAULT_PROPERTY_NAMES.current_interval) ?? currentInterval;
+      const previousReviewCount = pageNumber(currentPage, DEFAULT_PROPERTY_NAMES.review_count) ?? 0;
+      const previousLapseCount = pageNumber(currentPage, DEFAULT_PROPERTY_NAMES.lapse_count) ?? 0;
+      const review = calcNextReview(result, previousInterval, today);
+      const nextReviewCount = previousReviewCount + 1;
+      const nextLapseCount = previousLapseCount + (review.result === "again" ? 1 : 0);
+
       await notion.pages.update({
         page_id: notionPageId,
         properties: {
           [DEFAULT_PROPERTY_NAMES.review_status]: { select: { name: review.newStatus } },
           [DEFAULT_PROPERTY_NAMES.next_review]: { date: { start: review.nextReviewDate } },
+          [DEFAULT_PROPERTY_NAMES.current_interval]: { number: review.newInterval },
+          [DEFAULT_PROPERTY_NAMES.review_count]: { number: nextReviewCount },
+          [DEFAULT_PROPERTY_NAMES.lapse_count]: { number: nextLapseCount },
+          [DEFAULT_PROPERTY_NAMES.last_reviewed]: { date: { start: today } },
+          [DEFAULT_PROPERTY_NAMES.last_review_result]: { select: { name: review.resultLabel } },
         },
       });
 
-      return res.json({ ok: true, ...review });
+      if (typeof notion.blocks?.children?.append === "function") {
+        await notion.blocks.children.append({
+          block_id: notionPageId,
+          children: buildReviewHistoryBlocks({
+            reviewedAt: today,
+            resultLabel: review.resultLabel,
+            previousInterval: Number.isFinite(Number(previousInterval)) ? Number(previousInterval) : 3,
+            newInterval: review.newInterval,
+            reviewCount: nextReviewCount,
+            nextReviewDate: review.nextReviewDate,
+          }),
+        });
+      }
+
+      return res.json({
+        ok: true,
+        ...review,
+        reviewCount: nextReviewCount,
+        lapseCount: nextLapseCount,
+        lastReviewed: today,
+      });
     } catch (error) {
       console.error("Review update error:", error);
       return res.status(500).json({

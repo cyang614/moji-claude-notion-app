@@ -9,6 +9,11 @@ function notionPage({
   difficulty = "3",
   nextReview = null,
   reviewStatus = "New",
+  currentInterval = null,
+  reviewCount = null,
+  lapseCount = null,
+  lastReviewed = null,
+  lastReviewResult = null,
   meaning = "",
   exampleJp = "",
   exampleZh = "",
@@ -25,6 +30,11 @@ function notionPage({
       難度: { select: difficulty ? { name: difficulty } : null },
       複習狀態: { select: reviewStatus ? { name: reviewStatus } : null },
       下次複習日: { date: nextReview ? { start: nextReview } : null },
+      目前間隔: { number: currentInterval },
+      複習次數: { number: reviewCount },
+      生疏次數: { number: lapseCount },
+      上次複習日: { date: lastReviewed ? { start: lastReviewed } : null },
+      最近複習結果: { select: lastReviewResult ? { name: lastReviewResult } : null },
       中文意思: { rich_text: meaning ? [{ plain_text: meaning, text: { content: meaning } }] : [] },
       "核心例句（日文）": { rich_text: exampleJp ? [{ plain_text: exampleJp, text: { content: exampleJp } }] : [] },
       例句翻譯: { rich_text: exampleZh ? [{ plain_text: exampleZh, text: { content: exampleZh } }] : [] },
@@ -75,17 +85,23 @@ function createAnthropicMock(response = claudeV3Response) {
   };
 }
 
-function createNotionMock(queryResponse = { results: [] }) {
+function createNotionMock(queryResponse = { results: [] }, pageResponse = notionPage({ vocab: "退く", currentInterval: 3, reviewCount: 5, lapseCount: 2 })) {
   return {
     databases: {
       query: vi.fn().mockResolvedValue(queryResponse),
     },
     pages: {
+      retrieve: vi.fn().mockResolvedValue(pageResponse),
       create: vi.fn().mockResolvedValue({
         id: "notion-page-id",
         url: "https://notion.so/notion-page-id",
       }),
       update: vi.fn().mockResolvedValue({ id: "updated-page-id" }),
+    },
+    blocks: {
+      children: {
+        append: vi.fn().mockResolvedValue({}),
+      },
     },
   };
 }
@@ -104,11 +120,17 @@ function createNotionV5Mock(queryResponse = { results: [] }) {
       query: vi.fn().mockResolvedValue(queryResponse),
     },
     pages: {
+      retrieve: vi.fn().mockResolvedValue(notionPage({ vocab: "退く", currentInterval: 3, reviewCount: 5, lapseCount: 2 })),
       create: vi.fn().mockResolvedValue({
         id: "notion-page-id",
         url: "https://notion.so/notion-page-id",
       }),
       update: vi.fn().mockResolvedValue({ id: "updated-page-id" }),
+    },
+    blocks: {
+      children: {
+        append: vi.fn().mockResolvedValue({}),
+      },
     },
   };
 }
@@ -127,6 +149,11 @@ function createDashboardNotionMock() {
       exampleJp: "ちょっとどいてくれ。",
       exampleZh: "請讓開一下。",
       notes: "口語常用。",
+      currentInterval: 9,
+      reviewCount: 7,
+      lapseCount: 2,
+      lastReviewed: "2026-05-20",
+      lastReviewResult: "困難",
       url: "https://notion.so/doku",
     }),
     notionPage({ vocab: "概念", kana: "がいねん", jlpt: "N2", difficulty: "4", nextReview: "2026-06-01", reviewStatus: "Reviewing", url: "https://notion.so/gainen" }),
@@ -194,11 +221,16 @@ describe("SRS review mode", () => {
     expect(calcNextReview("easy", 30, "2026-05-28").newInterval).toBe(90);
   });
 
-  it("updates Notion review status and next review date", async () => {
+  it("updates Notion review status, SRS interval counters, and appends a review history block", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-05-28T00:00:00.000Z"));
 
-    const notion = createNotionMock();
+    const notion = createNotionMock({ results: [] }, notionPage({
+      vocab: "退く",
+      currentInterval: 3,
+      reviewCount: 5,
+      lapseCount: 2,
+    }));
     const app = createApp({
       anthropic: null,
       notion,
@@ -207,7 +239,7 @@ describe("SRS review mode", () => {
 
     const res = await request(app)
       .patch("/api/review")
-      .send({ notionPageId: "page-123", result: "good", currentInterval: 3 })
+      .send({ notionPageId: "page-123", result: "good" })
       .expect(200);
 
     expect(res.body).toEqual({
@@ -217,14 +249,69 @@ describe("SRS review mode", () => {
       newInterval: 8,
       newStatus: "Reviewing",
       nextReviewDate: "2026-06-05",
+      reviewCount: 6,
+      lapseCount: 2,
+      lastReviewed: "2026-05-28",
     });
+    expect(notion.pages.retrieve).toHaveBeenCalledWith({ page_id: "page-123" });
     expect(notion.pages.update).toHaveBeenCalledWith({
       page_id: "page-123",
       properties: {
         "複習狀態": { select: { name: "Reviewing" } },
         "下次複習日": { date: { start: "2026-06-05" } },
+        "目前間隔": { number: 8 },
+        "複習次數": { number: 6 },
+        "生疏次數": { number: 2 },
+        "上次複習日": { date: { start: "2026-05-28" } },
+        "最近複習結果": { select: { name: "一般" } },
       },
     });
+    expect(notion.blocks.children.append).toHaveBeenCalledWith({
+      block_id: "page-123",
+      children: [
+        expect.objectContaining({
+          type: "bulleted_list_item",
+        }),
+      ],
+    });
+    expect(JSON.stringify(notion.blocks.children.append.mock.calls[0][0].children)).toContain("間隔 3 → 8 天");
+
+    vi.useRealTimers();
+  });
+
+  it("increments lapse count when the review result is again", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-28T00:00:00.000Z"));
+
+    const notion = createNotionMock({ results: [] }, notionPage({
+      vocab: "猫",
+      currentInterval: 12,
+      reviewCount: 4,
+      lapseCount: 1,
+    }));
+    const app = createApp({
+      anthropic: null,
+      notion,
+      config: { notionDatabaseId: "database-id", claudeModel: "claude-test-model" },
+    });
+
+    const res = await request(app)
+      .patch("/api/review")
+      .send({ notionPageId: "page-456", result: "again" })
+      .expect(200);
+
+    expect(res.body).toMatchObject({
+      result: "again",
+      resultLabel: "生疏",
+      newInterval: 3,
+      newStatus: "New",
+      nextReviewDate: "2026-05-31",
+      reviewCount: 5,
+      lapseCount: 2,
+      lastReviewed: "2026-05-28",
+    });
+    expect(notion.pages.update.mock.calls[0][0].properties["生疏次數"]).toEqual({ number: 2 });
+    expect(notion.pages.update.mock.calls[0][0].properties["最近複習結果"]).toEqual({ select: { name: "生疏" } });
 
     vi.useRealTimers();
   });
@@ -273,7 +360,11 @@ describe("GET /api/dashboard-stats", () => {
         next_review: "2026-05-26",
         notionPageId: "退く-id",
         notionUrl: "https://notion.so/doku",
-        currentInterval: 5,
+        currentInterval: 9,
+        reviewCount: 7,
+        lapseCount: 2,
+        lastReviewed: "2026-05-20",
+        lastReviewResult: "困難",
         meaning: "讓開；退讓",
         example_jp: "ちょっとどいてくれ。",
         example_zh: "請讓開一下。",

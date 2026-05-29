@@ -16,6 +16,11 @@ export const DEFAULT_PROPERTY_NAMES = {
   memory_hook: "記憶法",
   review_status: "複習狀態",
   next_review: "下次複習日",
+  current_interval: "目前間隔",
+  review_count: "複習次數",
+  lapse_count: "生疏次數",
+  last_reviewed: "上次複習日",
+  last_review_result: "最近複習結果",
   raw_moji_text: "原始 Moji 文字",
   conjugations: "活用變化",
   related_words: "關聯詞整理",
@@ -74,6 +79,18 @@ function dateValue(value) {
   const content = textContent(value);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(content)) return null;
   return { start: content };
+}
+
+function numberValue(value, fallback = 0) {
+  const number = Number(value ?? fallback);
+  return Number.isFinite(number) ? number : fallback;
+}
+
+function initialReviewInterval(jlptLevel) {
+  const level = textContent(jlptLevel);
+  if (["N5", "N4"].includes(level)) return 3;
+  if (level === "N3") return 5;
+  return 7;
 }
 
 export function toTitle(value) {
@@ -155,6 +172,11 @@ export function buildNotionProperties(data, propertyNames = DEFAULT_PROPERTY_NAM
     [propertyNames.memory_hook]: { rich_text: toRichText(data.memory_hook) },
     [propertyNames.review_status]: { select: selectOption(data.review_status) },
     [propertyNames.next_review]: { date: dateValue(data.next_review) },
+    [propertyNames.current_interval]: { number: numberValue(data.current_interval, initialReviewInterval(data.jlpt_level)) },
+    [propertyNames.review_count]: { number: numberValue(data.review_count, 0) },
+    [propertyNames.lapse_count]: { number: numberValue(data.lapse_count, 0) },
+    [propertyNames.last_reviewed]: { date: dateValue(data.last_reviewed) },
+    [propertyNames.last_review_result]: { select: selectOption(data.last_review_result) },
     [propertyNames.raw_moji_text]: { rich_text: toTruncatedPropertyRichText(data.raw_moji_text) },
     [propertyNames.conjugations]: { rich_text: toRichText(data.conjugations) },
     [propertyNames.related_words]: { rich_text: toRichText(data.related_words) },
@@ -177,4 +199,22 @@ export function buildNotionPageChildren(data) {
   }
 
   return children.slice(0, 100);
+}
+
+export function buildReviewHistoryBlocks({
+  reviewedAt,
+  resultLabel,
+  previousInterval,
+  newInterval,
+  reviewCount,
+  nextReviewDate,
+}) {
+  const summary = `複習紀錄｜${reviewedAt}｜${resultLabel}｜間隔 ${previousInterval} → ${newInterval} 天｜第 ${reviewCount} 次｜下次 ${nextReviewDate}`;
+  return [
+    {
+      object: "block",
+      type: "bulleted_list_item",
+      bulleted_list_item: { rich_text: toRichText(summary) },
+    },
+  ];
 }

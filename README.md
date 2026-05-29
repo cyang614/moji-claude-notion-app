@@ -45,6 +45,11 @@ moji-claude-notion-app/
 | 記憶法 | Text / Rich text |
 | 複習狀態 | Select |
 | 下次複習日 | Date |
+| 目前間隔 | Number |
+| 複習次數 | Number |
+| 生疏次數 | Number |
+| 上次複習日 | Date |
+| 最近複習結果 | Select |
 | 原始 Moji 文字 | Text / Rich text |
 | 活用變化 | Text / Rich text |
 | 關聯詞整理 | Text / Rich text |
@@ -176,8 +181,12 @@ SRS 規則：
 
 - 間隔上限為 90 天。
 - `下次複習日 = 今天 + newInterval 天`，格式 `YYYY-MM-DD`。
-- 若前端沒有傳 `currentInterval`，後端預設為 3。
+- 新增單字時會自動寫入 `目前間隔`：N5/N4 = 3、N3 = 5、N2/N1/Unknown = 7；`複習次數` 與 `生疏次數` 預設為 0。
+- 送出複習結果時，後端會先從 Notion 讀取既有 `目前間隔`、`複習次數`、`生疏次數`，再更新新的 SRS 狀態。
+- 若舊資料尚未填 `目前間隔`，後端會使用前端傳入的 `currentInterval`；儀表板會先以 JLPT 等級估算，所以舊資料仍可複習。
 - 後端仍相容舊值：`forgotten` 會視為 `again`，`remembered` 會視為 `good`。
+- 每次複習成功後，後端會更新 Notion properties：`複習狀態`、`下次複習日`、`目前間隔`、`複習次數`、`生疏次數`、`上次複習日`、`最近複習結果`。
+- 每次複習也會在該 Notion 頁面內文底部追加一筆 bullet 複習紀錄，例如：`複習紀錄｜2026-05-28｜一般｜間隔 3 → 8 天｜第 6 次｜下次 2026-06-05`。
 
 複習 API 範例：
 
@@ -198,11 +207,14 @@ SRS 規則：
   "resultLabel": "一般",
   "newInterval": 8,
   "newStatus": "Reviewing",
-  "nextReviewDate": "2026-06-05"
+  "nextReviewDate": "2026-06-05",
+  "reviewCount": 6,
+  "lapseCount": 2,
+  "lastReviewed": "2026-05-28"
 }
 ```
 
-後端會依照 `server/src/notionMapper.js` 的欄位名稱更新 Notion，目前為 `複習狀態` 與 `下次複習日`。
+後端會依照 `server/src/notionMapper.js` 的欄位名稱更新 Notion；若你的 Notion 欄位名稱不同，請同步修改 `DEFAULT_PROPERTY_NAMES`。
 
 
 ## 測試與建置
